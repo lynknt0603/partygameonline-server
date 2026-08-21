@@ -1,0 +1,17 @@
+package com.partygameonline.game.nob.domain;
+
+public enum NobEffectCode {
+    LOOK_BLOODLINE,
+    LOOK_BLOODLINE_AND_RANDOM_CARD,
+    BLOODLINE_EXCHANGE,
+    ECHOES_OF_FALLEN,
+    UNMASK,
+    MOON_BROKER,
+    MOON_THIEF,
+    FINAL_JUDGEMENT,
+    BLIND_ELIMINATE,
+    INSPECT_THEN_DECIDE,
+    VEIL_REVERSAL,
+    LAST_OFFERING,
+    LAST_HOPE
+}

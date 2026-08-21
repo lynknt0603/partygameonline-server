@@ -1,0 +1,268 @@
+package com.partygameonline.game.nob;
+
+import com.partygameonline.game.core.GameStateProjector;
+import com.partygameonline.game.core.PlayerContext;
+import com.partygameonline.game.core.ViewerKind;
+import com.partygameonline.game.nob.api.dto.NobAnnouncementView;
+import com.partygameonline.game.nob.api.dto.NobBloodlineView;
+import com.partygameonline.game.nob.api.dto.NobCardView;
+import com.partygameonline.game.nob.api.dto.NobInspectRevealView;
+import com.partygameonline.game.nob.api.dto.NobObservationView;
+import com.partygameonline.game.nob.api.dto.NobPendingDecisionView;
+import com.partygameonline.game.nob.api.dto.NobPublicLogView;
+import com.partygameonline.game.nob.api.dto.NobPublicPlayerView;
+import com.partygameonline.game.nob.api.dto.NobRoundResultView;
+import com.partygameonline.game.nob.api.dto.NobView;
+import com.partygameonline.game.nob.domain.NobAnnouncement;
+import com.partygameonline.game.nob.domain.NobBloodline;
+import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
+import com.partygameonline.game.nob.domain.NobCardInstance;
+import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.nob.domain.NobInspectReveal;
+import com.partygameonline.game.nob.domain.NobMoonMark;
+import com.partygameonline.game.nob.domain.NobObservation;
+import com.partygameonline.game.nob.domain.NobPendingDecision;
+import com.partygameonline.game.nob.domain.NobPhase;
+import com.partygameonline.game.nob.domain.NobPlayerState;
+import com.partygameonline.game.nob.domain.NobRoundResult;
+import com.partygameonline.game.nob.domain.NobResolutionItem;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.stereotype.Component;
+
+@Component
+public class NobGameProjector implements GameStateProjector<NobGameState, NobView> {
+
+    @Override
+    public String gameType() {
+        return NobGameManifest.ID;
+    }
+
+    @Override
+    public NobView project(NobGameState state, PlayerContext viewer) {
+        String you = viewer.playerId();
+        NobPlayerState self = state.player(you);
+        boolean inGame = self != null && viewer.kind() == ViewerKind.PLAYER;
+        List<NobPublicPlayerView> players = new ArrayList<>();
+        for (NobPlayerState player : state.getPlayers()) {
+            boolean revealBloodline = player.getKnowledgeState() == NobBloodlineKnowledge.PUBLICLY_REVEALED
+                    || state.getPhase() == NobPhase.BLOODLINE_REVEAL
+                    || state.getPhase() == NobPhase.SCORING
+                    || state.getPhase() == NobPhase.ROUND_SUMMARY
+                    || state.getPhase() == NobPhase.GAME_OVER;
+            Integer score = state.isFinished() ? player.score() : null;
+            players.add(new NobPublicPlayerView(
+                    player.getPlayerId(),
+                    player.getDisplayName(),
+                    player.getSeat(),
+                    player.isAlive(),
+                    player.isConnected(),
+                    player.getPlayerId().equals(you),
+                    player.moonMarkCount(),
+                    score,
+                    revealBloodline ? bloodlineView(player.getCurrentBloodline()) : null,
+                    player.getRevealedCards().stream().map(NobGameProjector::cardView).toList(),
+                    player.getHand().size()
+            ));
+        }
+        List<NobCardView> myHand = inGame ? self.getHand().stream().map(NobGameProjector::cardView).toList() : List.of();
+        NobBloodlineView myBloodline = null;
+        String knowledge = null;
+        if (inGame) {
+            knowledge = self.getKnowledgeState().name();
+            if (self.knowsOwnBloodline()) {
+                myBloodline = bloodlineView(self.getCurrentBloodline());
+            }
+        }
+        List<Integer> myMarks = inGame
+                ? self.getMoonMarks().stream().map(NobMoonMark::value).toList()
+                : List.of();
+        List<NobObservationView> observations = inGame
+                ? self.getObservations().stream().map(NobGameProjector::observationView).toList()
+                : List.of();
+        NobInspectRevealView inspectReveal = inGame ? inspectRevealView(self.getInspectReveal()) : null;
+        NobPendingDecisionView pendingView = null;
+        if (inGame && state.getPendingDecision() != null && you.equals(state.getPendingDecision().actorId())) {
+            pendingView = pendingView(state.getPendingDecision());
+        } else if (inGame && state.hasUnclaimedMoonPick(you)) {
+            pendingView = moonPickView(state, you);
+        }
+        List<String> unclaimedMoon = state.unclaimedMoonPlayerIds();
+        String actorId = state.getPendingDecision() != null
+                ? state.getPendingDecision().actorId()
+                : (!unclaimedMoon.isEmpty() ? unclaimedMoon.getFirst() : state.getCurrentActorPlayerId());
+        String decisionType = state.getPendingDecision() != null
+                ? state.getPendingDecision().type().name()
+                : (!unclaimedMoon.isEmpty() ? "MOON_MARK_PICK" : null);
+        List<NobCardView> draftHand = List.of();
+        if (inGame) {
+            List<NobCardInstance> draft = state.getDraftHands().get(you);
+            if (draft != null) {
+                draftHand = draft.stream().map(NobGameProjector::cardView).toList();
+            }
+        }
+        List<NobCardView> echoCards = List.of();
+        if (inGame && pendingView != null && "ECHO_CHOOSE".equals(pendingView.type())) {
+            echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+        }
+        List<NobCardView> resolving = state.getResolutionQueue().stream()
+                .map(NobResolutionItem::card)
+                .map(NobGameProjector::cardView)
+                .toList();
+        List<NobPublicLogView> log = state.getPublicLog().stream()
+                .map(entry -> new NobPublicLogView(
+                        entry.type(),
+                        entry.text(),
+                        entry.actorPlayerId(),
+                        entry.targetPlayerId()
+                ))
+                .toList();
+        Instant serverTime = Instant.now();
+        Instant deadline = state.getPendingDecision() != null
+                ? state.getPendingDecision().expiresAt()
+                : (state.getResolutionDisplayExpiresAt() != null
+                        ? state.getResolutionDisplayExpiresAt()
+                        : state.getPhaseDeadline());
+        Instant started = state.getPendingDecision() != null
+                ? state.getPendingDecision().startedAt()
+                : state.getWindowStartedAt();
+        return new NobView(
+                NobGameManifest.ID,
+                state.getRoomId(),
+                you,
+                state.getRoundNumber(),
+                state.getPhase().name(),
+                state.getPhaseState().name(),
+                state.getVersion(),
+                serverTime,
+                started,
+                deadline,
+                state.isFinished(),
+                state.getTargetScore(),
+                List.copyOf(state.getWinnerPlayerIds()),
+                players,
+                myHand,
+                myBloodline,
+                knowledge,
+                myMarks,
+                observations,
+                inspectReveal,
+                pendingView,
+                draftHand,
+                echoCards,
+                log,
+                resolving,
+                state.getCurrentResolvingCard() == null ? null : cardView(state.getCurrentResolvingCard()),
+                actorId,
+                decisionType,
+                state.submittedPlayerIds(),
+                announcementView(state.getAnnouncement()),
+                roundResultView(state.getLastRoundResult()),
+                List.copyOf(state.getRoundRewardPlayerIds()),
+                state.getTiming().toMap(),
+                state.getDiscardPile().size(),
+                state.getUndealt().size()
+        );
+    }
+
+    private static NobCardView cardView(NobCardInstance card) {
+        return new NobCardView(
+                card.instanceId(),
+                card.cardCode(),
+                card.roleType().name(),
+                card.number(),
+                card.effectCode().name()
+        );
+    }
+
+    private static NobBloodlineView bloodlineView(NobBloodline bloodline) {
+        if (bloodline == null) {
+            return null;
+        }
+        return new NobBloodlineView(bloodline.type().name(), bloodline.rank());
+    }
+
+    private static NobInspectRevealView inspectRevealView(NobInspectReveal reveal) {
+        if (reveal == null) {
+            return null;
+        }
+        return new NobInspectRevealView(
+                reveal.targetPlayerId(),
+                bloodlineView(reveal.bloodline()),
+                reveal.cardCode(),
+                reveal.displayUntil()
+        );
+    }
+
+    private static NobObservationView observationView(NobObservation observation) {
+        return new NobObservationView(
+                observation.kind(),
+                observation.targetPlayerId(),
+                bloodlineView(observation.bloodline()),
+                observation.cardCode(),
+                observation.moonMarkValue()
+        );
+    }
+
+    private static NobPendingDecisionView moonPickView(NobGameState state, String playerId) {
+        List<String> options = state.getMoonTokenOffers().getOrDefault(playerId, List.of()).stream()
+                .map(com.partygameonline.game.nob.domain.NobMoonTokenOption::optionId)
+                .toList();
+        return new NobPendingDecisionView(
+                "moon-" + playerId,
+                "MOON_MARK_PICK",
+                playerId,
+                null,
+                null,
+                options,
+                List.of(),
+                null,
+                state.getWindowStartedAt(),
+                state.getPhaseDeadline()
+        );
+    }
+
+    private static NobPendingDecisionView pendingView(NobPendingDecision pending) {
+        Object target = pending.context() == null ? null : pending.context().get("targetId");
+        if (target == null && pending.context() != null && pending.context().get("a") != null) {
+            target = pending.context().get("a");
+        }
+        return new NobPendingDecisionView(
+                pending.decisionId(),
+                pending.type().name(),
+                pending.actorId(),
+                target instanceof String id ? id : null,
+                null,
+                pending.allowedOptions(),
+                pending.allowedTargetIds(),
+                pending.sourceCardInstanceId(),
+                pending.startedAt(),
+                pending.expiresAt()
+        );
+    }
+
+    private static NobAnnouncementView announcementView(NobAnnouncement announcement) {
+        if (announcement == null) {
+            return null;
+        }
+        return new NobAnnouncementView(
+                announcement.id(),
+                announcement.type(),
+                announcement.actorPlayerId(),
+                announcement.targetPlayerId(),
+                announcement.cardCode(),
+                announcement.reactionCardCode(),
+                announcement.messageKey(),
+                announcement.createdAt(),
+                announcement.displayUntil()
+        );
+    }
+
+    private static NobRoundResultView roundResultView(NobRoundResult result) {
+        if (result == null) {
+            return null;
+        }
+        return new NobRoundResultView(result.result(), result.winningBloodline(), result.lastHopeTriggered());
+    }
+}

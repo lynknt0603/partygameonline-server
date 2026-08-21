@@ -1,0 +1,12 @@
+package com.partygameonline.game.nob.domain;
+
+public enum NobPhaseState {
+    WAITING_FOR_PHASE_SUBMISSIONS,
+    RESOLVING_CARD,
+    WAITING_FOR_TARGET,
+    WAITING_FOR_OPTION,
+    WAITING_FOR_REACTION,
+    WAITING_FOR_HUNTER_DECISION,
+    RESOLUTION_RESULT_DISPLAY,
+    IDLE
+}
