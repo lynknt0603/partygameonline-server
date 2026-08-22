@@ -13,6 +13,7 @@ import com.partygameonline.game.nob.domain.NobEvent;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobInspectReveal;
 import com.partygameonline.game.nob.domain.NobKillSource;
+import com.partygameonline.game.nob.domain.NobMoonMark;
 import com.partygameonline.game.nob.domain.NobObservation;
 import com.partygameonline.game.nob.domain.NobPendingDecision;
 import com.partygameonline.game.nob.domain.NobPhase;
@@ -167,27 +168,39 @@ public final class NobRulesEngine {
         }
         List<com.partygameonline.game.nob.domain.NobMoonTokenOption> options =
                 new ArrayList<>(state.getMoonTokenOffers().getOrDefault(actorId, List.of()));
-        com.partygameonline.game.nob.domain.NobMoonTokenOption chosen = options.stream()
+        com.partygameonline.game.nob.domain.NobMoonTokenOption match = options.stream()
                 .filter(option -> option.optionId().equals(optionId))
                 .findFirst()
                 .orElse(null);
-        if (chosen == null) {
+        if (match == null) {
             if (options.isEmpty()) {
                 return;
             }
-            chosen = options.get(fromTimeout ? random.nextInt(options.size()) : 0);
+            match = options.get(fromTimeout ? random.nextInt(options.size()) : 0);
         }
+        final com.partygameonline.game.nob.domain.NobMoonTokenOption chosen = match;
         NobPlayerState player = state.requirePlayer(actorId);
         player.getMoonMarks().add(chosen.mark());
-        for (var option : options) {
-            if (!option.optionId().equals(chosen.optionId())) {
-                state.getMoonMarkPool().add(option.mark());
+        options.removeIf(option -> option.optionId().equals(chosen.optionId()));
+        state.getMoonTokenOffers().put(actorId, List.copyOf(options));
+        state.recordMoonPick(actorId);
+        if (!state.hasUnclaimedMoonPick(actorId)) {
+            for (var leftover : options) {
+                state.getMoonMarkPool().add(leftover.mark());
             }
+            state.getMoonTokenOffers().put(actorId, List.of());
         }
-        state.getMoonTokenClaimed().add(actorId);
-        events.add(NobEvent.of("NOB_MOON_MARK_COUNT_CHANGED", Map.of("playerId", actorId)));
+        events.add(NobEvent.of("NOB_MOON_MARK_COUNT_CHANGED", Map.of(
+                "playerId", actorId,
+                "value", chosen.mark().value()
+        )));
         state.announce("MOON_MARK_RECEIVED", actorId, null, null, null, "nob.moonMark.received");
-        state.log("NOB_MOON_MARK_COUNT_CHANGED", player.getDisplayName() + " received a Moon Mark");
+        state.log(
+                "NOB_MOON_MARK_COUNT_CHANGED",
+                player.getDisplayName() + " received a Moon Mark",
+                actorId,
+                null
+        );
     }
 
     private static void finishRoundSummary(NobGameState state, RandomSource random, List<NobEvent> events) {
@@ -289,7 +302,7 @@ public final class NobRulesEngine {
             }
             return ValidationResult.ok();
         }
-        if (pending.type() == NobDecisionType.CHOOSE_HIDDEN_CARD) {
+        if (pending.type() == NobDecisionType.CHOOSE_HIDDEN_CARD || pending.type() == NobDecisionType.CHOOSE_MOON_TOKEN) {
             String cardId = action.option() != null && !action.option().isBlank()
                     ? action.option()
                     : action.cardInstanceId();
@@ -329,7 +342,6 @@ public final class NobRulesEngine {
     ) {
         state.getDraftPicks().put(actorId, action.cardInstanceId());
         if (state.getDraftPicks().size() < state.getPlayers().size()) {
-            state.hurrySharedDeadline();
             return;
         }
         if (state.getPhase() == NobPhase.DRAFT_PICK_1) {
@@ -405,12 +417,16 @@ public final class NobRulesEngine {
         if (state.getPendingDecision() != null) {
             return;
         }
+        state.clearEchoShowcase();
         state.setResolutionDisplayExpiresAt(null);
         NobResolutionItem next = state.pollNextLiveCard();
         if (next == null) {
             state.setCurrentResolvingCard(null);
             advancePhase(state, random, events);
             return;
+        }
+        for (NobPlayerState player : state.getPlayers()) {
+            player.setInspectReveal(null);
         }
         NobPlayerState owner = state.requirePlayer(next.ownerPlayerId());
         state.revealCard(owner, next.card());
@@ -435,6 +451,7 @@ public final class NobRulesEngine {
             case LOOK_BLOODLINE, LOOK_BLOODLINE_AND_RANDOM_CARD, UNMASK, BLIND_ELIMINATE, INSPECT_THEN_DECIDE,
                     FINAL_JUDGEMENT, MOON_BROKER -> {
                 if (others.isEmpty()) {
+                    completeCurrentResolution(state);
                     return;
                 }
                 state.setPhaseState(NobPhaseState.WAITING_FOR_TARGET);
@@ -457,8 +474,8 @@ public final class NobRulesEngine {
                 );
             }
             case BLOODLINE_EXCHANGE -> {
-                List<String> all = state.alivePlayers().stream().map(NobPlayerState::getPlayerId).toList();
-                if (all.size() < 2) {
+                if (others.size() < 2) {
+                    completeCurrentResolution(state);
                     return;
                 }
                 state.setPhaseState(NobPhaseState.WAITING_FOR_TARGET);
@@ -466,11 +483,19 @@ public final class NobRulesEngine {
                         owner.getPlayerId(),
                         NobDecisionType.CHOOSE_TARGET,
                         List.of(),
-                        all,
+                        others,
                         card.instanceId(),
                         state.timeoutSecondsFor(NobDecisionType.CHOOSE_TARGET),
                         Map.of("effect", card.effectCode().name(), "need", 2)
                 ));
+                state.announce(
+                        "PLAYER_SELECTING_TARGET",
+                        owner.getPlayerId(),
+                        null,
+                        card.cardCode(),
+                        null,
+                        "nob.actor.selectingTarget"
+                );
             }
             case ECHOES_OF_FALLEN -> beginEchoes(state, owner, card, random, events);
             case MOON_THIEF -> beginMoonThief(state, owner, card, events);
@@ -521,7 +546,7 @@ public final class NobRulesEngine {
                     state, actor, already.getFirst(), card == null ? null : card.instanceId(), events);
             case BLOODLINE_EXCHANGE -> beginSwap(state, actor, already, card, events);
             case UNMASK -> beginUnmask(state, actor, already.getFirst(), card, events);
-            case BLIND_ELIMINATE -> beginKill(state, actor, already.getFirst(), card, NobKillSource.FERAL_KILLER, events);
+            case BLIND_ELIMINATE -> beginKill(state, actor, already.getFirst(), card, NobKillSource.FERAL_KILLER, random, events);
             case INSPECT_THEN_DECIDE -> beginHunter(state, actor, already.getFirst(), card, events);
             case FINAL_JUDGEMENT -> applyFinalJudgement(state, actor, already.getFirst(), events);
             case MOON_BROKER -> beginMoonBroker(state, actor, already.getFirst(), card, events);
@@ -550,7 +575,7 @@ public final class NobRulesEngine {
                 if ("ELIMINATE".equals(option)) {
                     beginKill(state, state.requirePlayer(actorId), targetId,
                             findUsed(state.requirePlayer(actorId), pending.sourceCardInstanceId()),
-                            NobKillSource.HUNTER, events);
+                            NobKillSource.HUNTER, random, events);
                 } else {
                     NobPlayerState hunter = state.requirePlayer(actorId);
                     NobPlayerState spared = state.requirePlayer(targetId);
@@ -558,7 +583,9 @@ public final class NobRulesEngine {
                             "NOB_PLAYER_SPARED",
                             hunter.getDisplayName() + " spared " + spared.getDisplayName(),
                             actorId,
-                            targetId
+                            targetId,
+                            null,
+                            resolvingCode(state)
                     );
                     state.announce(
                             "PLAYER_SPARED",
@@ -571,8 +598,14 @@ public final class NobRulesEngine {
                 }
             }
             case SHAPE_SWAP -> {
+                String aId = String.valueOf(pending.context().get("a"));
+                String bId = String.valueOf(pending.context().get("b"));
                 if ("SWAP".equals(option)) {
-                    swapBloodlines(state, String.valueOf(pending.context().get("a")), String.valueOf(pending.context().get("b")), events);
+                    swapBloodlines(state, aId, bId, events);
+                    state.log("NOB_SHAPE_SWAP", "", actorId, aId, bId, resolvingCode(state));
+                } else {
+                    concealBloodlinesAfterShape(state, aId, bId, events);
+                    state.log("NOB_SHAPE_KEEP", "", actorId, aId, bId, resolvingCode(state));
                 }
             }
             case UNMASK_REVEAL -> {
@@ -592,12 +625,17 @@ public final class NobRulesEngine {
             }
             case ECHO_CHOOSE -> applyEchoChoice(state, actorId, pending, option, action.cardInstanceId(), random, events);
             case MOON_BROKER -> applyMoonBroker(state, actorId, pending, option, random, events);
+            case CHOOSE_MOON_TOKEN -> applyMoonTokenPick(state, actorId, pending, option, action.cardInstanceId(), events);
             default -> {
             }
         }
         if (state.getPendingDecision() == null && state.getActiveKill() == null) {
             completeCurrentResolution(state);
         }
+    }
+
+    private static String resolvingCode(NobGameState state) {
+        return state.getCurrentResolvingCard() == null ? null : state.getCurrentResolvingCard().cardCode();
     }
 
     private static void inspectBloodline(NobGameState state, NobPlayerState actor, String targetId, List<NobEvent> events) {
@@ -614,7 +652,9 @@ public final class NobRulesEngine {
                 "NOB_INSPECTED",
                 actor.getDisplayName() + " inspected " + target.getDisplayName(),
                 actor.getPlayerId(),
-                targetId
+                targetId,
+                null,
+                resolvingCode(state)
         );
     }
 
@@ -689,23 +729,19 @@ public final class NobRulesEngine {
         actor.getObservations().add(new NobObservation("BLOODLINE", a.getPlayerId(), a.getCurrentBloodline(), null, null));
         actor.getObservations().add(new NobObservation("BLOODLINE", b.getPlayerId(), b.getCurrentBloodline(), null, null));
         state.log(
-                "NOB_INSPECTED",
-                actor.getDisplayName() + " inspected " + a.getDisplayName(),
+                "NOB_SHAPE_PREVIEW",
+                actor.getDisplayName() + " inspected " + a.getDisplayName() + " and " + b.getDisplayName(),
                 actor.getPlayerId(),
-                a.getPlayerId()
-        );
-        state.log(
-                "NOB_INSPECTED",
-                actor.getDisplayName() + " inspected " + b.getDisplayName(),
-                actor.getPlayerId(),
-                b.getPlayerId()
+                a.getPlayerId(),
+                b.getPlayerId(),
+                card == null ? resolvingCode(state) : card.cardCode()
         );
         state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
         state.setPendingDecision(state.newDecision(
                 actor.getPlayerId(),
                 NobDecisionType.SHAPE_SWAP,
                 List.of("SWAP", "KEEP"),
-                List.of(),
+                List.of(a.getPlayerId(), b.getPlayerId()),
                 card == null ? null : card.instanceId(),
                 state.timeoutSecondsFor(NobDecisionType.SHAPE_SWAP),
                 Map.of("a", a.getPlayerId(), "b", b.getPlayerId())
@@ -719,6 +755,17 @@ public final class NobRulesEngine {
         NobBloodline tmp = a.getCurrentBloodline();
         a.setCurrentBloodline(b.getCurrentBloodline());
         b.setCurrentBloodline(tmp);
+        concealBloodlinesAfterShape(state, aId, bId, events);
+    }
+
+    private static void concealBloodlinesAfterShape(
+            NobGameState state,
+            String aId,
+            String bId,
+            List<NobEvent> events
+    ) {
+        NobPlayerState a = state.requirePlayer(aId);
+        NobPlayerState b = state.requirePlayer(bId);
         a.setKnowledgeState(NobBloodlineKnowledge.UNKNOWN_AFTER_SWAP);
         b.setKnowledgeState(NobBloodlineKnowledge.UNKNOWN_AFTER_SWAP);
         events.add(NobEvent.of("NOB_MY_BLOODLINE_KNOWLEDGE_LOST_AFTER_SWAP"));
@@ -765,7 +812,9 @@ public final class NobRulesEngine {
                 "NOB_BLOODLINE_PUBLICLY_REVEALED",
                 target.getDisplayName() + " Bloodline was revealed: " + label,
                 actorId,
-                targetId
+                targetId,
+                null,
+                resolvingCode(state)
         );
         state.announce(
                 "BLOODLINE_PUBLICLY_REVEALED",
@@ -838,13 +887,21 @@ public final class NobRulesEngine {
     }
 
     private static void beginMoonThief(NobGameState state, NobPlayerState actor, NobCardInstance card, List<NobEvent> events) {
-        revealBloodlinePublic(state, actor.getPlayerId(), actor.getPlayerId(), events);
         List<String> eligible = state.alivePlayers().stream()
                 .filter(player -> !player.getPlayerId().equals(actor.getPlayerId()))
                 .filter(player -> player.moonMarkCount() > actor.moonMarkCount())
                 .map(NobPlayerState::getPlayerId)
                 .toList();
         if (eligible.isEmpty()) {
+            state.announce(
+                    "MOON_THIEF_NO_TARGET",
+                    actor.getPlayerId(),
+                    null,
+                    card == null ? null : card.cardCode(),
+                    null,
+                    "nob.moonThief.alreadyRichest"
+            );
+            state.holdResultDisplayFor(5_000);
             return;
         }
         state.setPhaseState(NobPhaseState.WAITING_FOR_TARGET);
@@ -853,10 +910,19 @@ public final class NobRulesEngine {
                 NobDecisionType.CHOOSE_TARGET,
                 List.of(),
                 eligible,
-                card.instanceId(),
+                card == null ? null : card.instanceId(),
                 state.timeoutSecondsFor(NobDecisionType.CHOOSE_TARGET),
                 Map.of("effect", NobEffectCode.MOON_THIEF.name())
         ));
+        state.announce(
+                "PLAYER_SELECTING_TARGET",
+                actor.getPlayerId(),
+                null,
+                card == null ? null : card.cardCode(),
+                null,
+                "nob.actor.selectingTarget"
+        );
+        events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", actor.getPlayerId())));
     }
 
     private static void stealMoon(
@@ -867,12 +933,63 @@ public final class NobRulesEngine {
             List<NobEvent> events
     ) {
         NobPlayerState target = state.requirePlayer(targetId);
-        if (target.getMoonMarks().isEmpty()) {
+        if (target.getMoonMarks().isEmpty() || target.moonMarkCount() <= actor.moonMarkCount()) {
             return;
         }
-        int index = random.nextInt(target.getMoonMarks().size());
-        actor.getMoonMarks().add(target.getMoonMarks().remove(index));
-        events.add(NobEvent.of("NOB_MOON_MARK_COUNT_CHANGED"));
+        if (target.getMoonMarks().size() == 1) {
+            takeMoonMark(state, actor, target, target.getMoonMarks().getFirst(), events);
+            return;
+        }
+        List<NobMoonMark> marks = new ArrayList<>(target.getMoonMarks());
+        List<String> pick = new ArrayList<>();
+        Map<String, Object> ctx = new LinkedHashMap<>();
+        ctx.put("targetId", targetId);
+        ctx.put("mode", "STEAL");
+        ctx.put("effect", NobEffectCode.MOON_THIEF.name());
+        while (pick.size() < 2 && !marks.isEmpty()) {
+            NobMoonMark mark = marks.remove(random.nextInt(marks.size()));
+            pick.add(mark.tokenId());
+            ctx.put("v:" + mark.tokenId(), mark.value());
+        }
+        state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
+        state.setPendingDecision(state.newDecision(
+                actor.getPlayerId(),
+                NobDecisionType.CHOOSE_MOON_TOKEN,
+                pick,
+                List.of(),
+                state.getCurrentResolvingCard() == null ? null : state.getCurrentResolvingCard().instanceId(),
+                state.timeoutSecondsFor(NobDecisionType.CHOOSE_MOON_TOKEN),
+                ctx
+        ));
+        events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", actor.getPlayerId())));
+    }
+
+    private static void takeMoonMark(
+            NobGameState state,
+            NobPlayerState actor,
+            NobPlayerState target,
+            NobMoonMark mark,
+            List<NobEvent> events
+    ) {
+        if (mark == null || !target.getMoonMarks().remove(mark)) {
+            return;
+        }
+        actor.getMoonMarks().add(mark);
+        revealBloodlinePublic(state, actor.getPlayerId(), actor.getPlayerId(), events);
+        events.add(NobEvent.of("NOB_MOON_MARK_COUNT_CHANGED", Map.of(
+                "playerId", actor.getPlayerId(),
+                "fromPlayerId", target.getPlayerId(),
+                "value", mark.value()
+        )));
+        state.announce("MOON_MARK_RECEIVED", actor.getPlayerId(), target.getPlayerId(), null, null, "nob.moonMark.received");
+        state.log(
+                "NOB_MOON_STOLEN",
+                actor.getDisplayName() + " stole a Moon Mark from " + target.getDisplayName(),
+                actor.getPlayerId(),
+                target.getPlayerId(),
+                null,
+                resolvingCode(state)
+        );
     }
 
     private static void beginMoonBroker(
@@ -886,9 +1003,6 @@ public final class NobRulesEngine {
         if (!state.requirePlayer(targetId).getMoonMarks().isEmpty()) {
             options.add("INSPECT_TOKEN");
         }
-        if (!actor.getMoonMarks().isEmpty() && !state.requirePlayer(targetId).getMoonMarks().isEmpty()) {
-            options.add("SWAP");
-        }
         state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
         state.setPendingDecision(state.newDecision(
                 actor.getPlayerId(),
@@ -897,7 +1011,7 @@ public final class NobRulesEngine {
                 List.of(),
                 card == null ? null : card.instanceId(),
                 state.timeoutSecondsFor(NobDecisionType.MOON_BROKER),
-                Map.of("targetId", targetId)
+                Map.of("targetId", targetId, "step", "MENU")
         ));
         events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", actor.getPlayerId())));
     }
@@ -915,15 +1029,156 @@ public final class NobRulesEngine {
         NobPlayerState target = state.requirePlayer(targetId);
         if ("INSPECT_BLOODLINE".equals(option)) {
             inspectBloodline(state, actor, targetId, events);
-        } else if ("INSPECT_TOKEN".equals(option) && !target.getMoonMarks().isEmpty()) {
-            int value = target.getMoonMarks().get(random.nextInt(target.getMoonMarks().size())).value();
-            actor.getObservations().add(new NobObservation("MOON", targetId, null, null, value));
-        } else if ("SWAP".equals(option) && !actor.getMoonMarks().isEmpty() && !target.getMoonMarks().isEmpty()) {
-            var mine = actor.getMoonMarks().removeFirst();
-            var theirs = target.getMoonMarks().remove(random.nextInt(target.getMoonMarks().size()));
-            actor.getMoonMarks().add(theirs);
-            target.getMoonMarks().add(mine);
+            return;
         }
+        if ("INSPECT_TOKEN".equals(option)) {
+            beginMoonTokenInspect(state, actor, target, pending.sourceCardInstanceId(), random, events);
+            return;
+        }
+        if ("SWAP".equals(option)) {
+            swapInspectedMoon(state, actor, target, pending, events);
+        }
+    }
+
+    private static void beginMoonTokenInspect(
+            NobGameState state,
+            NobPlayerState actor,
+            NobPlayerState target,
+            String sourceCardId,
+            RandomSource random,
+            List<NobEvent> events
+    ) {
+        List<NobMoonMark> marks = new ArrayList<>(target.getMoonMarks());
+        if (marks.isEmpty()) {
+            return;
+        }
+        if (marks.size() == 1) {
+            revealMoonMark(state, actor, target, marks.getFirst(), events);
+            offerMoonSwap(state, actor, target, sourceCardId, marks.getFirst().tokenId(), events);
+            return;
+        }
+        List<String> pick = new ArrayList<>();
+        while (pick.size() < 2 && !marks.isEmpty()) {
+            pick.add(marks.remove(random.nextInt(marks.size())).tokenId());
+        }
+        state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
+        state.setPendingDecision(state.newDecision(
+                actor.getPlayerId(),
+                NobDecisionType.CHOOSE_MOON_TOKEN,
+                pick,
+                List.of(),
+                sourceCardId,
+                state.timeoutSecondsFor(NobDecisionType.CHOOSE_MOON_TOKEN),
+                Map.of("targetId", target.getPlayerId())
+        ));
+        events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", actor.getPlayerId())));
+    }
+
+    private static void applyMoonTokenPick(
+            NobGameState state,
+            String actorId,
+            NobPendingDecision pending,
+            String option,
+            String cardInstanceId,
+            List<NobEvent> events
+    ) {
+        NobPlayerState actor = state.requirePlayer(actorId);
+        String targetId = String.valueOf(pending.context().get("targetId"));
+        NobPlayerState target = state.requirePlayer(targetId);
+        String tokenId = option != null && !option.isBlank() ? option : cardInstanceId;
+        NobMoonMark mark = target.getMoonMarks().stream()
+                .filter(item -> item.tokenId().equals(tokenId))
+                .findFirst()
+                .orElse(null);
+        if (mark == null && !target.getMoonMarks().isEmpty()) {
+            mark = target.getMoonMarks().getFirst();
+        }
+        if ("STEAL".equals(pending.context().get("mode"))) {
+            takeMoonMark(state, actor, target, mark, events);
+            return;
+        }
+        if (mark != null) {
+            revealMoonMark(state, actor, target, mark, events);
+        }
+        offerMoonSwap(state, actor, target, pending.sourceCardInstanceId(), mark == null ? tokenId : mark.tokenId(), events);
+    }
+
+    private static void revealMoonMark(
+            NobGameState state,
+            NobPlayerState actor,
+            NobPlayerState target,
+            NobMoonMark mark,
+            List<NobEvent> events
+    ) {
+        actor.getObservations().add(new NobObservation("MOON", target.getPlayerId(), null, null, mark.value()));
+        events.add(NobEvent.of("NOB_PRIVATE_MOON_SEEN", Map.of("viewerId", actor.getPlayerId())));
+        state.log(
+                "NOB_MOON_INSPECTED",
+                actor.getDisplayName() + " inspected a Moon Mark of " + target.getDisplayName(),
+                actor.getPlayerId(),
+                target.getPlayerId(),
+                null,
+                resolvingCode(state)
+        );
+    }
+
+    private static void offerMoonSwap(
+            NobGameState state,
+            NobPlayerState actor,
+            NobPlayerState target,
+            String sourceCardId,
+            String inspectedTokenId,
+            List<NobEvent> events
+    ) {
+        List<String> options = new ArrayList<>();
+        options.add("KEEP");
+        if (!actor.getMoonMarks().isEmpty() && !target.getMoonMarks().isEmpty()) {
+            options.add("SWAP");
+        }
+        state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
+        Map<String, Object> ctx = new HashMap<>();
+        ctx.put("targetId", target.getPlayerId());
+        ctx.put("step", "SWAP");
+        if (inspectedTokenId != null) {
+            ctx.put("inspectedTokenId", inspectedTokenId);
+        }
+        state.setPendingDecision(state.newDecision(
+                actor.getPlayerId(),
+                NobDecisionType.MOON_BROKER,
+                options,
+                List.of(),
+                sourceCardId,
+                state.timeoutSecondsFor(NobDecisionType.MOON_BROKER),
+                ctx
+        ));
+        events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", actor.getPlayerId())));
+    }
+
+    private static void swapInspectedMoon(
+            NobGameState state,
+            NobPlayerState actor,
+            NobPlayerState target,
+            NobPendingDecision pending,
+            List<NobEvent> events
+    ) {
+        if (actor.getMoonMarks().isEmpty() || target.getMoonMarks().isEmpty()) {
+            return;
+        }
+        String inspectedId = pending.context().get("inspectedTokenId") instanceof String id ? id : null;
+        int theirsIndex = 0;
+        if (inspectedId != null) {
+            for (int i = 0; i < target.getMoonMarks().size(); i++) {
+                if (inspectedId.equals(target.getMoonMarks().get(i).tokenId())) {
+                    theirsIndex = i;
+                    break;
+                }
+            }
+        }
+        var mine = actor.getMoonMarks().removeFirst();
+        var theirs = target.getMoonMarks().remove(theirsIndex);
+        actor.getMoonMarks().add(theirs);
+        target.getMoonMarks().add(mine);
+        events.add(NobEvent.of("NOB_MOON_MARK_COUNT_CHANGED"));
     }
 
     private static void beginEchoes(
@@ -939,7 +1194,10 @@ public final class NobRulesEngine {
             int index = random.nextInt(state.getDiscardPile().size());
             state.getEchoHold().add(state.getDiscardPile().remove(index));
         }
+        state.setEchoSource(card);
+        state.setEchoPicked(null);
         if (state.getEchoHold().isEmpty()) {
+            completeCurrentResolution(state);
             return;
         }
         for (NobCardInstance pulled : state.getEchoHold()) {
@@ -1009,6 +1267,7 @@ public final class NobRulesEngine {
             }
         }
         state.getEchoHold().clear();
+        state.setEchoPicked(chosen);
         actor.getHand().add(chosen);
         if ("PLAY_NOW".equals(option)) {
             state.revealCard(actor, chosen);
@@ -1022,45 +1281,32 @@ public final class NobRulesEngine {
             String targetId,
             NobCardInstance card,
             NobKillSource source,
+            RandomSource random,
             List<NobEvent> events
     ) {
         NobPlayerState target = state.requirePlayer(targetId);
-        List<String> options = reactionOptions(target);
         state.setActiveKill(new NobGameState.NobKillAttempt(
                 attacker.getPlayerId(),
                 targetId,
                 source,
                 card == null ? null : card.instanceId()
         ));
-        if (options.size() == 1 && "DECLINE".equals(options.getFirst())) {
-            finalizeKill(state, events);
+        String auto = autoReactionOption(target);
+        if (auto != null) {
+            applyReactionEffect(state, auto, random, events);
             return;
         }
-        state.setPhaseState(NobPhaseState.WAITING_FOR_REACTION);
-        state.setPendingDecision(state.newDecision(
-                targetId,
-                NobDecisionType.REACTION,
-                options,
-                List.of(),
-                card == null ? null : card.instanceId(),
-                state.timeoutSecondsFor(NobDecisionType.REACTION),
-                Map.of("source", source.name())
-        ));
-        events.add(NobEvent.of("NOB_DECISION_REQUIRED", Map.of("actorId", targetId)));
+        finalizeKill(state, events);
     }
 
-    private static List<String> reactionOptions(NobPlayerState target) {
-        List<String> options = new ArrayList<>();
-        boolean veil = target.getHand().stream().anyMatch(card -> card.effectCode() == NobEffectCode.VEIL_REVERSAL);
-        boolean offering = target.getHand().stream().anyMatch(card -> card.effectCode() == NobEffectCode.LAST_OFFERING);
-        if (veil) {
-            options.add("VEIL_REVERSAL");
+    private static String autoReactionOption(NobPlayerState target) {
+        if (target.getHand().stream().anyMatch(card -> card.effectCode() == NobEffectCode.VEIL_REVERSAL)) {
+            return "VEIL_REVERSAL";
         }
-        if (offering) {
-            options.add("LAST_OFFERING");
+        if (target.getHand().stream().anyMatch(card -> card.effectCode() == NobEffectCode.LAST_OFFERING)) {
+            return "LAST_OFFERING";
         }
-        options.add("DECLINE");
-        return options;
+        return null;
     }
 
     private static void applyReaction(
@@ -1070,45 +1316,55 @@ public final class NobRulesEngine {
             RandomSource random,
             List<NobEvent> events
     ) {
-        NobGameState.NobKillAttempt kill = state.getActiveKill();
         state.setPendingDecision(null);
+        applyReactionEffect(state, action.option(), random, events);
+        if (state.getPendingDecision() == null) {
+            completeCurrentResolution(state);
+        }
+    }
+
+    private static void applyReactionEffect(
+            NobGameState state,
+            String option,
+            RandomSource random,
+            List<NobEvent> events
+    ) {
+        NobGameState.NobKillAttempt kill = state.getActiveKill();
         if (kill == null) {
             return;
         }
         NobPlayerState target = state.requirePlayer(kill.targetId());
-        if ("VEIL_REVERSAL".equals(action.option())) {
-            consumeSpecial(target, NobEffectCode.VEIL_REVERSAL);
-            events.add(NobEvent.of("NOB_REACTION_REVEALED", Map.of("cardCode", "NOB-SP-VEIL-REVERSAL")));
+        if ("VEIL_REVERSAL".equals(option)) {
+            revealSpecial(state, target, NobEffectCode.VEIL_REVERSAL, events);
             state.announce(
                     "VEIL_REVERSAL",
                     kill.attackerId(),
                     kill.targetId(),
-                    null,
+                    "NOB-SP-VEIL-REVERSAL",
                     "NOB-SP-VEIL-REVERSAL",
                     "nob.reaction.veilReversal"
             );
+            state.holdResultDisplay();
             eliminate(state, kill.attackerId(), kill.targetId(), events);
             state.setActiveKill(null);
-        } else if ("LAST_OFFERING".equals(action.option())) {
-            consumeSpecial(target, NobEffectCode.LAST_OFFERING);
+            return;
+        }
+        if ("LAST_OFFERING".equals(option)) {
+            revealSpecial(state, target, NobEffectCode.LAST_OFFERING, events);
             state.awardMoonMark(target, random);
-            events.add(NobEvent.of("NOB_REACTION_REVEALED", Map.of("cardCode", "NOB-SP-LAST-OFFERING")));
             state.announce(
                     "GLORIOUS_SACRIFICE",
                     kill.attackerId(),
                     kill.targetId(),
-                    null,
+                    "NOB-SP-LAST-OFFERING",
                     "NOB-SP-LAST-OFFERING",
                     "nob.reaction.gloriousSacrifice"
             );
             state.holdResultDisplay();
             finalizeKill(state, events);
-        } else {
-            finalizeKill(state, events);
+            return;
         }
-        if (state.getPendingDecision() == null) {
-            completeCurrentResolution(state);
-        }
+        finalizeKill(state, events);
     }
 
     private static void finalizeKill(NobGameState state, List<NobEvent> events) {
@@ -1127,13 +1383,32 @@ public final class NobRulesEngine {
         }
     }
 
-    private static void consumeSpecial(NobPlayerState player, NobEffectCode code) {
+    private static NobCardInstance revealSpecial(
+            NobGameState state,
+            NobPlayerState player,
+            NobEffectCode code,
+            List<NobEvent> events
+    ) {
         NobCardInstance card = player.getHand().stream().filter(item -> item.effectCode() == code).findFirst().orElse(null);
-        if (card != null) {
-            player.getHand().remove(card);
-            player.getRevealedCards().add(card);
-            player.getUsedCards().add(card);
+        if (card == null) {
+            return null;
         }
+        player.getHand().remove(card);
+        player.getRevealedCards().add(card);
+        player.getUsedCards().add(card);
+        if (state != null) {
+            state.setCurrentResolvingCard(card);
+            state.log(
+                    "NOB_ROLE_REVEALED",
+                    player.getDisplayName() + " revealed " + card.cardCode(),
+                    player.getPlayerId(),
+                    null,
+                    null,
+                    card.cardCode()
+            );
+        }
+        events.add(NobEvent.of("NOB_REACTION_REVEALED", Map.of("cardCode", card.cardCode())));
+        return card;
     }
 
     private static void eliminate(NobGameState state, String playerId, String actorId, List<NobEvent> events) {
@@ -1149,7 +1424,7 @@ public final class NobRulesEngine {
         String text = actorName == null
                 ? player.getDisplayName() + " was eliminated"
                 : actorName + " eliminated " + player.getDisplayName();
-        state.log("NOB_PLAYER_ELIMINATED", text, actorId, playerId);
+        state.log("NOB_PLAYER_ELIMINATED", text, actorId, playerId, null, resolvingCode(state));
     }
 
     private static void advancePhase(NobGameState state, RandomSource random, List<NobEvent> events) {
@@ -1189,6 +1464,14 @@ public final class NobRulesEngine {
                                 "cardCode", card.cardCode()
                         )));
                         state.setCurrentResolvingCard(card);
+                        state.log(
+                                "NOB_ROLE_REVEALED",
+                                player.getDisplayName() + " revealed " + card.cardCode(),
+                                player.getPlayerId(),
+                                null,
+                                null,
+                                card.cardCode()
+                        );
                         state.announce(
                                 "LAST_HOPE_TRIGGERED",
                                 player.getPlayerId(),
@@ -1246,14 +1529,16 @@ public final class NobRulesEngine {
         }
         if (state.getPhase() == NobPhase.ROUND_SUMMARY) {
             for (String playerId : List.copyOf(state.unclaimedMoonPlayerIds())) {
-                List<com.partygameonline.game.nob.domain.NobMoonTokenOption> options =
-                        state.getMoonTokenOffers().getOrDefault(playerId, List.of());
-                if (options.isEmpty()) {
-                    continue;
+                while (state.hasUnclaimedMoonPick(playerId)) {
+                    List<com.partygameonline.game.nob.domain.NobMoonTokenOption> options =
+                            new ArrayList<>(state.getMoonTokenOffers().getOrDefault(playerId, List.of()));
+                    if (options.isEmpty()) {
+                        break;
+                    }
+                    String optionId = options.get(random.nextInt(options.size())).optionId();
+                    emitAutoAction(state, events, playerId, "MOON_MARK_PICK");
+                    applyMoonPick(state, playerId, optionId, random, events, true);
                 }
-                String optionId = options.get(random.nextInt(options.size())).optionId();
-                emitAutoAction(state, events, playerId, "MOON_MARK_PICK");
-                applyMoonPick(state, playerId, optionId, random, events, true);
             }
             finishRoundSummary(state, random, events);
             return;
@@ -1286,8 +1571,13 @@ public final class NobRulesEngine {
                 }
                 case REACTION -> {
                     emitAutoAction(state, events, pending.actorId(), "REACTION");
+                    String auto = pending.allowedOptions().contains("VEIL_REVERSAL")
+                            ? "VEIL_REVERSAL"
+                            : pending.allowedOptions().contains("LAST_OFFERING")
+                                    ? "LAST_OFFERING"
+                                    : "DECLINE";
                     applyReaction(state, pending.actorId(), new NobAction(
-                            NobAction.REACTION, null, null, null, null, List.of(), "DECLINE"
+                            NobAction.REACTION, null, null, null, null, List.of(), auto
                     ), random, events);
                 }
                 case SHAPE_SWAP -> applyOption(state, pending.actorId(), new NobAction(
@@ -1310,9 +1600,22 @@ public final class NobRulesEngine {
                             NobAction.CHOOSE_OPTION, null, null, echoId, null, List.of(), "KEEP_FOR_LATER"
                     ), random, events);
                 }
-                case MOON_BROKER -> applyOption(state, pending.actorId(), new NobAction(
-                        NobAction.CHOOSE_OPTION, null, null, null, null, List.of(), "SKIP"
-                ), random, events);
+                case CHOOSE_MOON_TOKEN -> {
+                    String tokenId = pending.allowedOptions().isEmpty()
+                            ? null
+                            : pending.allowedOptions().get(random.nextInt(pending.allowedOptions().size()));
+                    applyOption(state, pending.actorId(), new NobAction(
+                            NobAction.CHOOSE_OPTION, null, null, tokenId, null, List.of(), tokenId
+                    ), random, events);
+                }
+                case MOON_BROKER -> {
+                    String auto = pending.allowedOptions().contains("SKIP")
+                            ? "SKIP"
+                            : pending.allowedOptions().contains("KEEP") ? "KEEP" : "SKIP";
+                    applyOption(state, pending.actorId(), new NobAction(
+                            NobAction.CHOOSE_OPTION, null, null, null, null, List.of(), auto
+                    ), random, events);
+                }
                 default -> {
                     state.setPendingDecision(null);
                     advanceResolution(state, random, events);
@@ -1335,7 +1638,9 @@ public final class NobRulesEngine {
             }
             return;
         }
-        if (isNightPhase(state.getPhase()) && state.getPhaseState() == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS) {
+        if (isNightPhase(state.getPhase())
+                && state.getPhaseState() == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS
+                && state.getCurrentResolvingCard() == null) {
             for (NobPlayerState player : state.playersWhoMustSubmit()) {
                 if (state.getPhaseSubmissions().putIfAbsent(player.getPlayerId(), List.of("PASS")) == null) {
                     emitAutoAction(state, events, player.getPlayerId(), "PHASE_SUBMIT");
@@ -1343,6 +1648,12 @@ public final class NobRulesEngine {
             }
             state.closePhaseSubmissions();
             advanceResolution(state, random, events);
+            return;
+        }
+        if (state.getPendingDecision() == null
+                && state.getActiveKill() == null
+                && state.getCurrentResolvingCard() != null) {
+            completeCurrentResolution(state);
         }
     }
 

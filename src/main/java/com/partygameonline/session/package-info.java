@@ -1,2 +1,2 @@
-/** Guest HTTP session identity. Guests are not written to users in BE-03. */
+/** Guest HTTP session identity. */
 package com.partygameonline.session;

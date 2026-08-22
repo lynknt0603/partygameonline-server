@@ -7,6 +7,7 @@ public final class WsMessageTypes {
     public static final String RESYNC_REQUIRED = "RESYNC_REQUIRED";
 
     public static final String ROOM_SNAPSHOT = "ROOM_SNAPSHOT";
+    public static final String ROOM_CHAT = "ROOM_CHAT";
     public static final String PLAYER_JOINED = "PLAYER_JOINED";
     public static final String PLAYER_LEFT = "PLAYER_LEFT";
     public static final String PLAYER_READY_CHANGED = "PLAYER_READY_CHANGED";

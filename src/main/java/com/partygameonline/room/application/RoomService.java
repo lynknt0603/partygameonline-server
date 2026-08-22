@@ -1,5 +1,6 @@
 package com.partygameonline.room.application;
 
+import com.partygameonline.common.UniqueDisplayNames;
 import com.partygameonline.common.error.ResourceNotFoundException;
 import com.partygameonline.game.core.GameManifest;
 import com.partygameonline.game.core.GameRegistry;
@@ -147,6 +148,34 @@ public class RoomService {
             }
             return null;
         });
+    }
+
+    public void syncPlayerDisplayName(String playerId, String requestedName) {
+        roomRepository.findByPlayerId(playerId).ifPresent(existing ->
+                roomLocks.withRoom(existing.getId().value(), () -> {
+                    GameRoom room = roomRepository.findById(existing.getId()).orElse(null);
+                    if (room == null) {
+                        return null;
+                    }
+                    var player = room.findPlayer(playerId).orElse(null);
+                    if (player == null) {
+                        return null;
+                    }
+                    String base = UniqueDisplayNames.normalize(requestedName);
+                    List<String> taken = room.getPlayers().stream()
+                            .filter(other -> !playerId.equals(other.getPlayerId()))
+                            .map(com.partygameonline.room.domain.RoomPlayer::getDisplayName)
+                            .toList();
+                    String unique = taken.contains(base) || UniqueDisplayNames.familyOccupied(base, taken)
+                            ? UniqueDisplayNames.nextNumbered(base, taken)
+                            : base;
+                    if (!unique.equals(player.getDisplayName())) {
+                        player.setDisplayName(unique);
+                        realtimePublisher.roomSettingsChanged(room);
+                    }
+                    return null;
+                })
+        );
     }
 
     public GameRoom ready(PlayerPrincipal principal, String rawRoomId, boolean ready) {

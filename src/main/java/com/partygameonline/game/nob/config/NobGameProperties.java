@@ -15,7 +15,7 @@ public record NobGameProperties(
             targetScore = 10;
         }
         if (moonMarks == null) {
-            moonMarks = new MoonMarks(15, 12, 8);
+            moonMarks = new MoonMarks(10, 15, 10);
         }
         if (timeout == null) {
             timeout = new Timeout(30, 30, 30, 10);
@@ -23,19 +23,19 @@ public record NobGameProperties(
     }
 
     public static NobGameProperties defaults() {
-        return new NobGameProperties(10, new MoonMarks(15, 12, 8), new Timeout(30, 30, 30, 10), true);
+        return new NobGameProperties(10, new MoonMarks(10, 15, 10), new Timeout(30, 30, 30, 10), true);
     }
 
     public record MoonMarks(int value2Count, int value3Count, int value4Count) {
         public MoonMarks {
             if (value2Count < 0) {
-                value2Count = 15;
+                value2Count = 10;
             }
             if (value3Count < 0) {
-                value3Count = 12;
+                value3Count = 15;
             }
             if (value4Count < 0) {
-                value4Count = 8;
+                value4Count = 10;
             }
         }
     }

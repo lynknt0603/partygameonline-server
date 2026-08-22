@@ -1,5 +1,6 @@
 package com.partygameonline.session.api;
 
+import com.partygameonline.room.application.RoomService;
 import com.partygameonline.room.infrastructure.RoomRepository;
 import com.partygameonline.session.api.dto.CreateGuestSessionRequest;
 import com.partygameonline.session.api.dto.SessionResponse;
@@ -25,10 +26,16 @@ public class SessionController {
 
     private final SessionService sessionService;
     private final RoomRepository roomRepository;
+    private final RoomService roomService;
 
-    public SessionController(SessionService sessionService, RoomRepository roomRepository) {
+    public SessionController(
+            SessionService sessionService,
+            RoomRepository roomRepository,
+            RoomService roomService
+    ) {
         this.sessionService = sessionService;
         this.roomRepository = roomRepository;
+        this.roomService = roomService;
     }
 
     @PostMapping("/guest")
@@ -42,6 +49,7 @@ public class SessionController {
                 httpRequest,
                 httpResponse
         );
+        roomService.syncPlayerDisplayName(principal.playerId(), principal.displayName());
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(principal));
     }
 

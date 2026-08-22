@@ -63,11 +63,11 @@ public final class NobScoringService {
                             && player.getCurrentBloodline().type() == NobBloodlineType.HALFBLOOD)
                     .map(NobPlayerState::getPlayerId)
                     .forEach(ids::add);
-            return ids;
+            return includeLastOffering(state, ids);
         }
         if (result == MainResult.TOTAL_TIE) {
             state.alivePlayers().stream().map(NobPlayerState::getPlayerId).forEach(ids::add);
-            return ids;
+            return includeLastOffering(state, ids);
         }
         NobBloodlineType winner = result == MainResult.VAMPIRE ? NobBloodlineType.VAMPIRE : NobBloodlineType.WEREWOLF;
         for (NobPlayerState player : state.getPlayers()) {
@@ -79,7 +79,35 @@ public final class NobScoringService {
                 ids.add(player.getPlayerId());
             }
         }
+        return includeLastOffering(state, ids);
+    }
+
+    private static List<String> includeLastOffering(NobGameState state, List<String> ids) {
+        for (NobPlayerState player : state.getPlayers()) {
+            if (usedLastOffering(player) && !ids.contains(player.getPlayerId())) {
+                ids.add(player.getPlayerId());
+            }
+        }
         return ids;
+    }
+
+    public static boolean usedLastOffering(NobPlayerState player) {
+        return player.getRevealedCards().stream().anyMatch(card -> card.effectCode() == NobEffectCode.LAST_OFFERING)
+                || player.getUsedCards().stream().anyMatch(card -> card.effectCode() == NobEffectCode.LAST_OFFERING);
+    }
+
+    public static int moonPicksNeeded(NobGameState state, String playerId) {
+        NobPlayerState player = state.requirePlayer(playerId);
+        if (!usedLastOffering(player) || player.getCurrentBloodline() == null) {
+            return 1;
+        }
+        NobBloodlineType type = player.getCurrentBloodline().type();
+        return switch (compareSurvivors(state)) {
+            case VAMPIRE -> type == NobBloodlineType.VAMPIRE ? 2 : 1;
+            case WEREWOLF -> type == NobBloodlineType.WEREWOLF ? 2 : 1;
+            case LAST_HOPE_HALFBLOOD -> type == NobBloodlineType.HALFBLOOD ? 2 : 1;
+            case TOTAL_TIE -> 1;
+        };
     }
 
     public static void applyRoundRewards(NobGameState state, MainResult result, RandomSource random) {

@@ -1,2 +1,2 @@
-/** Durable user identity. Credentials and auth stay for later phases. */
+/** Durable user identity. */
 package com.partygameonline.user;

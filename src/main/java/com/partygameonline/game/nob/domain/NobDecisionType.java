@@ -12,5 +12,6 @@ public enum NobDecisionType {
     ECHO_CHOOSE,
     UNMASK_REVEAL,
     MOON_BROKER,
+    CHOOSE_MOON_TOKEN,
     MOON_MARK_PICK
 }

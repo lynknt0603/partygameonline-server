@@ -38,7 +38,7 @@ class NobTimingSettingsTests {
     }
 
     @Test
-    void firstDraftPickCollapsesRemainingTimeToFiveSeconds() {
+    void firstDraftPickKeepsFullWindowAfterSomeoneChooses() {
         NobGameState state = NobTestSupport.fourPlayers(4);
         Instant original = state.getPhaseDeadline();
         assertThat(original).isAfter(Instant.now().plusSeconds(10));
@@ -46,9 +46,7 @@ class NobTimingSettingsTests {
                 state.getDraftHands().get("p1").getFirst().instanceId()
         ));
         assertThat(state.getPhase()).isEqualTo(NobPhase.DRAFT_PICK_1);
-        assertThat(state.getPhaseDeadline()).isBeforeOrEqualTo(Instant.now().plusSeconds(NobGameState.HURRY_UP_SECONDS + 1));
-        assertThat(state.getPhaseDeadline()).isAfter(Instant.now().plusMillis(500));
-        assertThat(state.getPhaseDeadline()).isBefore(original);
+        assertThat(state.getPhaseDeadline()).isEqualTo(original);
     }
 
     @Test
@@ -82,11 +80,26 @@ class NobTimingSettingsTests {
 
     @Test
     void hurryDoesNotExtendADeadlineAlreadyUnderFiveSeconds() {
-        NobGameState state = NobTestSupport.fourPlayers(4);
+        NobGameState state = NobTestSupport.fourPlayers(11);
+        state.getDraftHands().clear();
+        state.getDraftPicks().clear();
+        state.getPlayers().forEach(player -> {
+            player.getHand().clear();
+            player.getRevealedCards().clear();
+            player.getUsedCards().clear();
+            player.getPassedInstanceIds().clear();
+        });
+        state.beginNightPhase(NobPhase.SHADOW_STALKER);
+        state.requirePlayer("p1").getHand().add(
+                com.partygameonline.game.nob.domain.NobCardInstance.from(
+                        com.partygameonline.game.nob.catalog.NobCardCatalog.require("NOB-SS-01")));
+        state.requirePlayer("p2").getHand().add(
+                com.partygameonline.game.nob.domain.NobCardInstance.from(
+                        com.partygameonline.game.nob.catalog.NobCardCatalog.require("NOB-SS-02")));
         Instant almostDone = Instant.now().plusSeconds(2);
         state.setPhaseDeadline(almostDone);
-        NobTestSupport.apply(state, "p1", NobTestSupport.draft(
-                state.getDraftHands().get("p1").getFirst().instanceId()
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(
+                state.requirePlayer("p1").getHand().getFirst().instanceId()
         ));
         assertThat(state.getPhaseDeadline()).isEqualTo(almostDone);
     }

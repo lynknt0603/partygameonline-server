@@ -103,9 +103,12 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
             }
         }
         List<NobCardView> echoCards = List.of();
-        if (inGame && pendingView != null && "ECHO_CHOOSE".equals(pendingView.type())) {
+        if (!state.getEchoHold().isEmpty()) {
             echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+        } else if (state.getEchoPicked() != null) {
+            echoCards = List.of(cardView(state.getEchoPicked()));
         }
+        NobCardView echoSourceCard = state.getEchoSource() == null ? null : cardView(state.getEchoSource());
         List<NobCardView> resolving = state.getResolutionQueue().stream()
                 .map(NobResolutionItem::card)
                 .map(NobGameProjector::cardView)
@@ -115,7 +118,9 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                         entry.type(),
                         entry.text(),
                         entry.actorPlayerId(),
-                        entry.targetPlayerId()
+                        entry.targetPlayerId(),
+                        entry.extraTargetPlayerId(),
+                        entry.cardCode()
                 ))
                 .toList();
         Instant serverTime = Instant.now();
@@ -151,6 +156,7 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 pendingView,
                 draftHand,
                 echoCards,
+                echoSourceCard,
                 log,
                 resolving,
                 state.getCurrentResolvingCard() == null ? null : cardView(state.getCurrentResolvingCard()),
@@ -219,7 +225,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 List.of(),
                 null,
                 state.getWindowStartedAt(),
-                state.getPhaseDeadline()
+                state.getPhaseDeadline(),
+                null
         );
     }
 
@@ -227,6 +234,13 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         Object target = pending.context() == null ? null : pending.context().get("targetId");
         if (target == null && pending.context() != null && pending.context().get("a") != null) {
             target = pending.context().get("a");
+        }
+        List<Integer> optionValues = null;
+        if (pending.context() != null && "STEAL".equals(pending.context().get("mode"))) {
+            optionValues = pending.allowedOptions().stream().map(id -> {
+                Object raw = pending.context().get("v:" + id);
+                return raw instanceof Number number ? number.intValue() : null;
+            }).toList();
         }
         return new NobPendingDecisionView(
                 pending.decisionId(),
@@ -238,7 +252,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 pending.allowedTargetIds(),
                 pending.sourceCardInstanceId(),
                 pending.startedAt(),
-                pending.expiresAt()
+                pending.expiresAt(),
+                optionValues
         );
     }
 
