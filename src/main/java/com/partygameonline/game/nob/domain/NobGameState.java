@@ -21,6 +21,7 @@ public class NobGameState {
     public static final int MIN_PLAYERS = 4;
     public static final int MAX_PLAYERS = 11;
     public static final int TARGET_SCORE = 10;
+    public static final int HURRY_UP_SECONDS = 5;
 
     private final String roomId;
     private int roundNumber = 1;
@@ -50,7 +51,7 @@ public class NobGameState {
     private final List<NobPublicLogEntry> publicLog = new ArrayList<>();
     private final Map<String, List<NobCardInstance>> draftHands = new LinkedHashMap<>();
     private final Map<String, String> draftPicks = new LinkedHashMap<>();
-    private final Map<String, String> phaseSubmissions = new LinkedHashMap<>();
+    private final Map<String, List<String>> phaseSubmissions = new LinkedHashMap<>();
     private final Set<String> processedCommandIds = new HashSet<>();
     private final List<NobCardInstance> echoHold = new ArrayList<>();
     private Instant phaseDeadline;
@@ -383,7 +384,7 @@ public class NobGameState {
         return draftPicks;
     }
 
-    public Map<String, String> getPhaseSubmissions() {
+    public Map<String, List<String>> getPhaseSubmissions() {
         return phaseSubmissions;
     }
 
@@ -397,6 +398,13 @@ public class NobGameState {
 
     public void setPhaseDeadline(Instant phaseDeadline) {
         this.phaseDeadline = phaseDeadline;
+    }
+
+    public void hurrySharedDeadline() {
+        Instant cap = Instant.now().plusSeconds(HURRY_UP_SECONDS);
+        if (phaseDeadline == null || phaseDeadline.isAfter(cap)) {
+            setPhaseDeadline(cap);
+        }
     }
 
     public NobKillAttempt getActiveKill() {
@@ -514,8 +522,9 @@ public class NobGameState {
 
     public void closePhaseSubmissions() {
         List<NobResolutionItem> items = new ArrayList<>();
-        for (Map.Entry<String, String> entry : phaseSubmissions.entrySet()) {
-            if ("PASS".equals(entry.getValue())) {
+        for (Map.Entry<String, List<String>> entry : phaseSubmissions.entrySet()) {
+            List<String> submitted = entry.getValue() == null ? List.of() : entry.getValue();
+            if (submitted.stream().anyMatch(value -> "PASS".equalsIgnoreCase(value))) {
                 NobPlayerState player = requirePlayer(entry.getKey());
                 player.getHand().stream()
                         .filter(card -> card.matchesPhase(phase))
@@ -523,9 +532,11 @@ public class NobGameState {
                 continue;
             }
             NobPlayerState player = requirePlayer(entry.getKey());
-            NobCardInstance card = player.findHand(entry.getValue());
-            if (card != null) {
-                items.add(new NobResolutionItem(player.getPlayerId(), card));
+            for (String cardId : submitted) {
+                NobCardInstance card = player.findHand(cardId);
+                if (card != null && card.matchesPhase(phase)) {
+                    items.add(new NobResolutionItem(player.getPlayerId(), card));
+                }
             }
         }
         items.sort(Comparator

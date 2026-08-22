@@ -2,6 +2,7 @@ package com.partygameonline.game.nob;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.partygameonline.game.nob.api.dto.NobView;
 import com.partygameonline.game.nob.catalog.NobCardCatalog;
 import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
@@ -161,6 +162,40 @@ class NobNightAndEffectsTests {
         NobTestSupport.apply(state, "p1", NobTestSupport.target("p4"));
         NobTestSupport.apply(state, "p1", NobTestSupport.option("REVEAL_PUBLIC"));
         assertThat(state.player("p4").getKnowledgeState()).isEqualTo(NobBloodlineKnowledge.PUBLICLY_REVEALED);
+
+        NobView observer = new NobGameProjector().project(state, NobTestSupport.viewer("p2"));
+        var p4 = observer.players().stream().filter(player -> "p4".equals(player.playerId())).findFirst().orElseThrow();
+        assertThat(p4.publiclyRevealedBloodline()).isNotNull();
+        assertThat(p4.publiclyRevealedBloodline().type()).isEqualTo(state.player("p4").getCurrentBloodline().type().name());
+        assertThat(p4.publiclyRevealedBloodline().rank()).isEqualTo(state.player("p4").getCurrentBloodline().rank());
+        assertThat(observer.myObservations()).anyMatch(obs ->
+                "BLOODLINE".equals(obs.kind())
+                        && "p4".equals(obs.targetPlayerId())
+                        && obs.bloodline() != null);
+        assertThat(observer.announcement()).isNotNull();
+        assertThat(observer.announcement().type()).isEqualTo("BLOODLINE_PUBLICLY_REVEALED");
+        assertThat(observer.announcement().targetPlayerId()).isEqualTo("p4");
+        assertThat(observer.publicLog()).anyMatch(entry ->
+                "NOB_BLOODLINE_PUBLICLY_REVEALED".equals(entry.type())
+                        && "p4".equals(entry.targetPlayerId())
+                        && entry.text() != null
+                        && entry.text().contains(p4.publiclyRevealedBloodline().type()));
+    }
+
+    @Test
+    void shapeshifterUnmaskKeepSecretDoesNotPublishBloodline() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-03");
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(hand(state, "p1").instanceId()));
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p4"));
+        NobTestSupport.apply(state, "p1", NobTestSupport.option("KEEP_SECRET"));
+        assertThat(state.player("p4").getKnowledgeState()).isNotEqualTo(NobBloodlineKnowledge.PUBLICLY_REVEALED);
+
+        NobView observer = new NobGameProjector().project(state, NobTestSupport.viewer("p2"));
+        var p4 = observer.players().stream().filter(player -> "p4".equals(player.playerId())).findFirst().orElseThrow();
+        assertThat(p4.publiclyRevealedBloodline()).isNull();
+        assertThat(observer.myObservations()).noneMatch(obs ->
+                "BLOODLINE".equals(obs.kind()) && "p4".equals(obs.targetPlayerId()));
     }
 
     @Test
@@ -231,6 +266,55 @@ class NobNightAndEffectsTests {
         NobTestSupport.apply(state, "p1", NobTestSupport.pass());
         assertThat(state.player("p1").getPassedInstanceIds()).isNotEmpty();
         assertThat(state.getPhase()).isNotEqualTo(NobPhase.SHADOW_STALKER);
+    }
+
+    @Test
+    void bloodSeerCanPlayBothCardsInNumberOrder() {
+        NobGameState state = preparedNight(NobPhase.BLOOD_SEER);
+        give(state, "p1", "NOB-BS-02");
+        give(state, "p1", "NOB-BS-01");
+        NobTestSupport.apply(state, "p1", NobTestSupport.submitBoth());
+        assertThat(state.player("p1").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .containsExactly("NOB-BS-01");
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
+        NobTestSupport.flushPresentation(state);
+        assertThat(state.player("p1").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .containsExactly("NOB-BS-01", "NOB-BS-02");
+        assertThat(state.getPendingDecision()).isNotNull();
+        assertThat(state.getPendingDecision().actorId()).isEqualTo("p1");
+    }
+
+    @Test
+    void hunterCanPlayBothCardsSequentially() {
+        NobGameState state = preparedNight(NobPhase.HUNTER);
+        give(state, "p1", "NOB-HU-02");
+        give(state, "p1", "NOB-HU-01");
+        NobTestSupport.apply(state, "p1", NobTestSupport.submitBoth());
+        assertThat(state.player("p1").getRevealedCards()).extracting(NobCardInstance::cardCode).contains("NOB-HU-01");
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p3"));
+        NobTestSupport.apply(state, "p1", NobTestSupport.hunter("SPARE"));
+        NobTestSupport.flushPresentation(state);
+        assertThat(state.player("p1").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-HU-01", "NOB-HU-02");
+        assertThat(state.getPendingDecision()).isNotNull();
+        assertThat(state.getPendingDecision().actorId()).isEqualTo("p1");
+    }
+
+    @Test
+    void playBothRequiresTwoMatchingRoleCards() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-01");
+        assertThat(NobTestSupport.validate(state, "p1", NobTestSupport.submitBoth()).errorCode())
+                .isEqualTo("INVALID_CARD");
+    }
+
+    @Test
+    void specialCardsCannotBeBundledWithPlayBoth() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-01");
+        give(state, "p1", "NOB-SP-LAST-HOPE");
+        assertThat(NobTestSupport.validate(state, "p1", NobTestSupport.submitBoth()).errorCode())
+                .isEqualTo("INVALID_CARD");
     }
 
     private static NobGameState preparedNight(NobPhase phase) {

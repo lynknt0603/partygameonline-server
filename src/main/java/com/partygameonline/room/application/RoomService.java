@@ -134,6 +134,7 @@ public class RoomService {
                     );
                     if (applied.result().finished()) {
                         realtimePublisher.gameFinished(room, null, applied.result().winnerPlayerId(), views);
+                        recycleFinishedRoom(room);
                     }
                 }
             }
@@ -283,10 +284,20 @@ public class RoomService {
                         matchHistoryService.recordIfFinished(room, session);
                         Map<String, Object> views = gameRuntimeService.projectViews(room, session);
                         realtimePublisher.gameFinished(room, null, applied.result().winnerPlayerId(), views);
+                        recycleFinishedRoom(room);
                     }
                     return null;
                 })
         );
+    }
+
+    public void recycleFinishedRoom(GameRoom room) {
+        if (room.getStatus() != RoomStatus.FINISHED) {
+            return;
+        }
+        room.returnToWaiting();
+        gameRuntimeService.removeSession(room.getId().value());
+        realtimePublisher.roomSettingsChanged(room);
     }
 
     private GameManifest requireEnabledGame(String gameId) {

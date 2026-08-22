@@ -164,8 +164,10 @@ public class GameRoom {
         if (players.size() < minPlayers) {
             throw RoomException.notEnoughPlayers();
         }
-        boolean allReady = players.stream().allMatch(RoomPlayer::isReady);
-        if (!allReady) {
+        boolean guestsReady = players.stream()
+                .filter(player -> !hostPlayerId.equals(player.getPlayerId()))
+                .allMatch(RoomPlayer::isReady);
+        if (!guestsReady) {
             throw RoomException.playersNotReady();
         }
         this.status = RoomStatus.STARTING;
@@ -183,6 +185,18 @@ public class GameRoom {
             throw RoomException.alreadyStarted();
         }
         this.status = RoomStatus.FINISHED;
+    }
+
+    public void returnToWaiting() {
+        if (status != RoomStatus.FINISHED) {
+            throw RoomException.alreadyStarted();
+        }
+        this.status = RoomStatus.WAITING;
+        for (RoomPlayer player : players) {
+            if (player.getState() != PlayerLobbyState.DISCONNECTED) {
+                player.setState(PlayerLobbyState.CONNECTED);
+            }
+        }
     }
 
     public void close(String actorPlayerId) {

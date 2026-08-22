@@ -84,8 +84,8 @@ class DemoGameFlowTests {
                     "play-" + request++,
                     Map.of("type", "PLAY_CARD", "cardId", openingHand.get(i))
             );
-            GameSession latest = gameSessionRepository.findByRoomId(roomId).orElseThrow();
-            if (latest.isFinished()) {
+            GameSession latest = gameSessionRepository.findByRoomId(roomId).orElse(null);
+            if (latest == null || latest.isFinished()) {
                 break;
             }
             dispatcher.dispatch(
@@ -102,11 +102,9 @@ class DemoGameFlowTests {
             );
         }
 
-        GameSession finished = gameSessionRepository.findByRoomId(roomId).orElseThrow();
-        assertThat(finished.isFinished()).isTrue();
-        assertThat(finished.getWinnerPlayerId()).isEqualTo(host.playerId);
+        assertThat(gameSessionRepository.findByRoomId(roomId)).isEmpty();
         assertThat(roomRepository.findById(com.partygameonline.room.domain.RoomId.parse(roomId)).orElseThrow().getStatus())
-                .isEqualTo(RoomStatus.FINISHED);
+                .isEqualTo(RoomStatus.WAITING);
 
         mockMvc.perform(get("/api/v1/matches").session(host.session))
                 .andExpect(status().isOk())

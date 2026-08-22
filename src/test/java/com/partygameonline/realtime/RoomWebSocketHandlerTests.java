@@ -60,7 +60,8 @@ class RoomWebSocketHandlerTests {
                 new InMemoryRoomRepository(),
                 runtime,
                 publisher,
-                org.mockito.Mockito.mock(com.partygameonline.history.application.MatchHistoryService.class)
+                org.mockito.Mockito.mock(com.partygameonline.history.application.MatchHistoryService.class),
+                roomService
         );
         lenient().when(roomService.socketReconnected(any())).thenReturn(Optional.empty());
         DisconnectGraceService grace = new DisconnectGraceService(

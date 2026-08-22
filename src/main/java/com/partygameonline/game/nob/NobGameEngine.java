@@ -98,7 +98,18 @@ public class NobGameEngine implements GameEngine<NobGameState, NobAction, NobEve
         if (singleTarget != null && !targets.contains(singleTarget)) {
             targets.add(singleTarget);
         }
-        return new NobAction(type, commandId, expectedVersion, cardInstanceId, cardCode, List.copyOf(targets), option, decisionId);
+        List<String> cardIds = stringList(payload.get("cardInstanceIds"));
+        return new NobAction(
+                type,
+                commandId,
+                expectedVersion,
+                cardInstanceId,
+                cardCode,
+                List.copyOf(targets),
+                option,
+                decisionId,
+                cardIds
+        );
     }
 
     @Override
@@ -145,6 +156,18 @@ public class NobGameEngine implements GameEngine<NobGameState, NobAction, NobEve
 
     private static String stringValue(Object raw) {
         return raw instanceof String value && !value.isBlank() ? value : null;
+    }
+
+    private static List<String> stringList(Object raw) {
+        List<String> values = new ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof String id && !id.isBlank() && !values.contains(id)) {
+                    values.add(id);
+                }
+            }
+        }
+        return List.copyOf(values);
     }
 
     private static Integer intValue(Object raw) {

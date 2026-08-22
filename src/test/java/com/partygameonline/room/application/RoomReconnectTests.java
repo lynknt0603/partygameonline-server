@@ -77,8 +77,7 @@ class RoomReconnectTests {
         roomService.expireDisconnect("p2");
 
         GameRoom after = roomService.get(room.getId().value());
-        assertThat(after.getStatus()).isEqualTo(RoomStatus.FINISHED);
-        assertThat(gameSessionRepository.findByRoomId(room.getId().value()).orElseThrow().getWinnerPlayerId())
-                .isEqualTo("host");
+        assertThat(after.getStatus()).isEqualTo(RoomStatus.WAITING);
+        assertThat(after.findPlayer("p2")).isPresent();
     }
 }

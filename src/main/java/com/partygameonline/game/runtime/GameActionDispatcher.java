@@ -4,6 +4,7 @@ import com.partygameonline.game.core.GameActionFormatException;
 import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.history.application.MatchHistoryService;
 import com.partygameonline.realtime.RoomRealtimePublisher;
+import com.partygameonline.room.application.RoomService;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomId;
 import com.partygameonline.room.domain.RoomPlayer;
@@ -26,19 +27,22 @@ public class GameActionDispatcher {
     private final GameRuntimeService runtimeService;
     private final RoomRealtimePublisher realtimePublisher;
     private final MatchHistoryService matchHistoryService;
+    private final RoomService roomService;
 
     public GameActionDispatcher(
             RoomLocks roomLocks,
             RoomRepository roomRepository,
             GameRuntimeService runtimeService,
             RoomRealtimePublisher realtimePublisher,
-            MatchHistoryService matchHistoryService
+            MatchHistoryService matchHistoryService,
+            RoomService roomService
     ) {
         this.roomLocks = roomLocks;
         this.roomRepository = roomRepository;
         this.runtimeService = runtimeService;
         this.realtimePublisher = realtimePublisher;
         this.matchHistoryService = matchHistoryService;
+        this.roomService = roomService;
     }
 
     public void dispatch(PlayerPrincipal player, String rawRoomId, String requestId, Map<String, Object> payload) {
@@ -130,6 +134,7 @@ public class GameActionDispatcher {
             realtimePublisher.gameEvents(room, requestId, player.playerId(), events, views);
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, requestId, applied.result().winnerPlayerId(), views);
+                roomService.recycleFinishedRoom(room);
             }
             return null;
         });

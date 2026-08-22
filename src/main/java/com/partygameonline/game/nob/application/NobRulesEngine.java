@@ -5,6 +5,7 @@ import com.partygameonline.game.core.ValidationResult;
 import com.partygameonline.game.nob.domain.NobAction;
 import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
+import com.partygameonline.game.nob.domain.NobBloodlineType;
 import com.partygameonline.game.nob.domain.NobCardInstance;
 import com.partygameonline.game.nob.domain.NobDecisionType;
 import com.partygameonline.game.nob.domain.NobEffectCode;
@@ -122,7 +123,7 @@ public final class NobRulesEngine {
             }
         } else if (isNightPhase(state.getPhase())
                 && state.getPhaseState() == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS) {
-            state.getPhaseSubmissions().putIfAbsent(playerId, "PASS");
+            state.getPhaseSubmissions().putIfAbsent(playerId, List.of("PASS"));
             if (state.getPhaseSubmissions().size() >= state.playersWhoMustSubmit().size()) {
                 state.closePhaseSubmissions();
                 advanceResolution(state, random, events);
@@ -237,11 +238,28 @@ public final class NobRulesEngine {
         if ("PASS".equalsIgnoreCase(action.option()) || "PASS".equalsIgnoreCase(action.cardInstanceId())) {
             return ValidationResult.ok();
         }
-        NobCardInstance card = actor.findHand(action.cardInstanceId());
-        if (card == null || !card.matchesPhase(state.getPhase())) {
+        List<NobCardInstance> matching = matchingPhaseCards(actor, state.getPhase());
+        if (action.playAllMatching()) {
+            if (matching.size() < 2) {
+                return ValidationResult.reject("INVALID_CARD", "You need two cards of this role to play both");
+            }
+            return ValidationResult.ok();
+        }
+        List<String> ids = action.resolvedCardInstanceIds();
+        if (ids.isEmpty()) {
             return ValidationResult.reject("INVALID_CARD", "Choose a card for this phase or pass");
         }
+        for (String id : ids) {
+            NobCardInstance card = actor.findHand(id);
+            if (card == null || !card.matchesPhase(state.getPhase())) {
+                return ValidationResult.reject("INVALID_CARD", "Choose a card for this phase or pass");
+            }
+        }
         return ValidationResult.ok();
+    }
+
+    private static List<NobCardInstance> matchingPhaseCards(NobPlayerState actor, NobPhase phase) {
+        return actor.getHand().stream().filter(card -> card.matchesPhase(phase)).toList();
     }
 
     private static ValidationResult validatePending(
@@ -311,6 +329,7 @@ public final class NobRulesEngine {
     ) {
         state.getDraftPicks().put(actorId, action.cardInstanceId());
         if (state.getDraftPicks().size() < state.getPlayers().size()) {
+            state.hurrySharedDeadline();
             return;
         }
         if (state.getPhase() == NobPhase.DRAFT_PICK_1) {
@@ -362,12 +381,19 @@ public final class NobRulesEngine {
     }
 
     private static void applySubmit(NobGameState state, String actorId, NobAction action, RandomSource random, List<NobEvent> events) {
-        String value = action.cardInstanceId();
-        if (value == null || "PASS".equalsIgnoreCase(action.option()) || "PASS".equalsIgnoreCase(value)) {
-            value = "PASS";
+        List<String> submitted;
+        if ("PASS".equalsIgnoreCase(action.option()) || "PASS".equalsIgnoreCase(action.cardInstanceId())) {
+            submitted = List.of("PASS");
+        } else if (action.playAllMatching()) {
+            submitted = matchingPhaseCards(state.requirePlayer(actorId), state.getPhase()).stream()
+                    .map(NobCardInstance::instanceId)
+                    .toList();
+        } else {
+            submitted = action.resolvedCardInstanceIds();
         }
-        state.getPhaseSubmissions().put(actorId, value);
+        state.getPhaseSubmissions().put(actorId, submitted);
         if (state.getPhaseSubmissions().size() < state.playersWhoMustSubmit().size()) {
+            state.hurrySharedDeadline();
             return;
         }
         state.closePhaseSubmissions();
@@ -551,7 +577,12 @@ public final class NobRulesEngine {
             }
             case UNMASK_REVEAL -> {
                 if ("REVEAL_PUBLIC".equals(option)) {
-                    revealBloodlinePublic(state, String.valueOf(pending.context().get("targetId")), events);
+                    revealBloodlinePublic(
+                            state,
+                            String.valueOf(pending.context().get("targetId")),
+                            actorId,
+                            events
+                    );
                 }
             }
             case CHOOSE_HIDDEN_CARD -> {
@@ -713,15 +744,53 @@ public final class NobRulesEngine {
         ));
     }
 
-    private static void revealBloodlinePublic(NobGameState state, String targetId, List<NobEvent> events) {
+    private static void revealBloodlinePublic(
+            NobGameState state,
+            String targetId,
+            String actorId,
+            List<NobEvent> events
+    ) {
         NobPlayerState target = state.requirePlayer(targetId);
         target.setKnowledgeState(NobBloodlineKnowledge.PUBLICLY_REVEALED);
+        NobBloodline line = target.getCurrentBloodline();
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", targetId);
-        payload.put("type", target.getCurrentBloodline().type().name());
-        payload.put("rank", target.getCurrentBloodline().rank());
+        payload.put("type", line.type().name());
+        if (line.rank() != null) {
+            payload.put("rank", line.rank());
+        }
         events.add(NobEvent.of("NOB_BLOODLINE_PUBLICLY_REVEALED", payload));
-        state.log("NOB_BLOODLINE_PUBLICLY_REVEALED", target.getDisplayName() + " Bloodline was revealed");
+        String label = bloodlineLabel(line);
+        state.log(
+                "NOB_BLOODLINE_PUBLICLY_REVEALED",
+                target.getDisplayName() + " Bloodline was revealed: " + label,
+                actorId,
+                targetId
+        );
+        state.announce(
+                "BLOODLINE_PUBLICLY_REVEALED",
+                actorId,
+                targetId,
+                null,
+                null,
+                "nob.bloodline.revealed"
+        );
+        for (NobPlayerState player : state.getPlayers()) {
+            boolean known = player.getObservations().stream().anyMatch(obs ->
+                    "BLOODLINE".equals(obs.kind())
+                            && targetId.equals(obs.targetPlayerId())
+                            && obs.bloodline() != null);
+            if (!known) {
+                player.getObservations().add(new NobObservation("BLOODLINE", targetId, line, null, null));
+            }
+        }
+    }
+
+    private static String bloodlineLabel(NobBloodline line) {
+        if (line.type() == NobBloodlineType.HALFBLOOD) {
+            return "Halfblood";
+        }
+        return line.type().name() + (line.rank() != null ? " " + line.rank() : "");
     }
 
     private static void beginHunter(
@@ -763,21 +832,13 @@ public final class NobRulesEngine {
     }
 
     private static void applyFinalJudgement(NobGameState state, NobPlayerState actor, String targetId, List<NobEvent> events) {
-        actor.setKnowledgeState(NobBloodlineKnowledge.PUBLICLY_REVEALED);
-        events.add(NobEvent.of("NOB_BLOODLINE_PUBLICLY_REVEALED", Map.of(
-                "playerId", actor.getPlayerId(),
-                "type", actor.getCurrentBloodline().type().name()
-        )));
+        revealBloodlinePublic(state, actor.getPlayerId(), actor.getPlayerId(), events);
         state.announce("ELIMINATION_SUCCESS", actor.getPlayerId(), targetId, null, null, "nob.elimination.success");
         eliminate(state, targetId, actor.getPlayerId(), events);
     }
 
     private static void beginMoonThief(NobGameState state, NobPlayerState actor, NobCardInstance card, List<NobEvent> events) {
-        actor.setKnowledgeState(NobBloodlineKnowledge.PUBLICLY_REVEALED);
-        events.add(NobEvent.of("NOB_BLOODLINE_PUBLICLY_REVEALED", Map.of(
-                "playerId", actor.getPlayerId(),
-                "type", actor.getCurrentBloodline().type().name()
-        )));
+        revealBloodlinePublic(state, actor.getPlayerId(), actor.getPlayerId(), events);
         List<String> eligible = state.alivePlayers().stream()
                 .filter(player -> !player.getPlayerId().equals(actor.getPlayerId()))
                 .filter(player -> player.moonMarkCount() > actor.moonMarkCount())
@@ -1276,7 +1337,7 @@ public final class NobRulesEngine {
         }
         if (isNightPhase(state.getPhase()) && state.getPhaseState() == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS) {
             for (NobPlayerState player : state.playersWhoMustSubmit()) {
-                if (state.getPhaseSubmissions().putIfAbsent(player.getPlayerId(), "PASS") == null) {
+                if (state.getPhaseSubmissions().putIfAbsent(player.getPlayerId(), List.of("PASS")) == null) {
                     emitAutoAction(state, events, player.getPlayerId(), "PHASE_SUBMIT");
                 }
             }
