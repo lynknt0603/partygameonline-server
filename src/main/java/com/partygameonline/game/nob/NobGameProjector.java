@@ -17,6 +17,7 @@ import com.partygameonline.game.nob.domain.NobAnnouncement;
 import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
 import com.partygameonline.game.nob.domain.NobCardInstance;
+import com.partygameonline.game.nob.domain.NobDecisionType;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobInspectReveal;
 import com.partygameonline.game.nob.domain.NobMoonMark;
@@ -103,10 +104,19 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
             }
         }
         List<NobCardView> echoCards = List.of();
+        int echoCardCount = state.getEchoCardCount();
         if (!state.getEchoHold().isEmpty()) {
-            echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+            echoCardCount = state.getEchoHold().size();
+            boolean echoActor = inGame
+                    && state.getPendingDecision() != null
+                    && state.getPendingDecision().type() == NobDecisionType.ECHO_CHOOSE
+                    && you.equals(state.getPendingDecision().actorId());
+            if (echoActor) {
+                echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+            }
         } else if (state.getEchoPicked() != null) {
             echoCards = List.of(cardView(state.getEchoPicked()));
+            echoCardCount = Math.max(echoCardCount, 1);
         }
         NobCardView echoSourceCard = state.getEchoSource() == null ? null : cardView(state.getEchoSource());
         List<NobCardView> resolving = state.getResolutionQueue().stream()
@@ -156,6 +166,7 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 pendingView,
                 draftHand,
                 echoCards,
+                echoCardCount,
                 echoSourceCard,
                 log,
                 resolving,
@@ -237,10 +248,9 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         }
         List<Integer> optionValues = null;
         if (pending.context() != null && "STEAL".equals(pending.context().get("mode"))) {
-            optionValues = pending.allowedOptions().stream().map(id -> {
-                Object raw = pending.context().get("v:" + id);
-                return raw instanceof Number number ? number.intValue() : null;
-            }).toList();
+            // Keep the steal choices face-down. The selected Moon Mark value is
+            // revealed naturally after it is transferred to the actor.
+            optionValues = pending.allowedOptions().stream().map(id -> (Integer) null).toList();
         }
         return new NobPendingDecisionView(
                 pending.decisionId(),

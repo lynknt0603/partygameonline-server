@@ -27,6 +27,7 @@ public record NobView(
         NobPendingDecisionView myPendingDecision,
         List<NobCardView> myDraftHand,
         List<NobCardView> echoCards,
+        int echoCardCount,
         NobCardView echoSourceCard,
         List<NobPublicLogView> publicLog,
         List<NobCardView> resolving,

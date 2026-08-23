@@ -551,7 +551,7 @@ public final class NobRulesEngine {
             case INSPECT_THEN_DECIDE -> beginHunter(state, actor, already.getFirst(), card, events);
             case FINAL_JUDGEMENT -> applyFinalJudgement(state, actor, already.getFirst(), events);
             case MOON_BROKER -> beginMoonBroker(state, actor, already.getFirst(), card, events);
-            case MOON_THIEF -> stealMoon(state, actor, already.getFirst(), random, events);
+            case MOON_THIEF -> stealMoon(state, actor, already.getFirst(), events);
             default -> {
             }
         }
@@ -952,7 +952,6 @@ public final class NobRulesEngine {
             NobGameState state,
             NobPlayerState actor,
             String targetId,
-            RandomSource random,
             List<NobEvent> events
     ) {
         NobPlayerState target = state.requirePlayer(targetId);
@@ -969,10 +968,8 @@ public final class NobRulesEngine {
         ctx.put("targetId", targetId);
         ctx.put("mode", "STEAL");
         ctx.put("effect", NobEffectCode.MOON_THIEF.name());
-        while (pick.size() < 2 && !marks.isEmpty()) {
-            NobMoonMark mark = marks.remove(random.nextInt(marks.size()));
+        for (NobMoonMark mark : marks) {
             pick.add(mark.tokenId());
-            ctx.put("v:" + mark.tokenId(), mark.value());
         }
         state.setPhaseState(NobPhaseState.WAITING_FOR_OPTION);
         state.setPendingDecision(state.newDecision(
@@ -1217,6 +1214,7 @@ public final class NobRulesEngine {
             int index = random.nextInt(state.getDiscardPile().size());
             state.getEchoHold().add(state.getDiscardPile().remove(index));
         }
+        state.setEchoCardCount(state.getEchoHold().size());
         state.setEchoSource(card);
         state.setEchoPicked(null);
         if (state.getEchoHold().isEmpty()) {

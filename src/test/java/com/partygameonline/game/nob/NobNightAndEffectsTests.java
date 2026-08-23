@@ -228,6 +228,35 @@ class NobNightAndEffectsTests {
     }
 
     @Test
+    void shapeshifterEchoCardsStayPrivateUntilActorChooses() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-02");
+        state.getDiscardPile().add(NobCardInstance.from(NobCardCatalog.require("NOB-SS-01")));
+        state.getDiscardPile().add(NobCardInstance.from(NobCardCatalog.require("NOB-SS-03")));
+
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(hand(state, "p1").instanceId()));
+        assertThat(state.getPendingDecision().type()).isEqualTo(NobDecisionType.ECHO_CHOOSE);
+        assertThat(state.getEchoHold()).hasSize(2);
+
+        NobView actor = new NobGameProjector().project(state, NobTestSupport.viewer("p1"));
+        NobView observer = new NobGameProjector().project(state, NobTestSupport.viewer("p2"));
+        assertThat(actor.echoCardCount()).isEqualTo(2);
+        assertThat(actor.echoCards()).hasSize(2);
+        assertThat(observer.echoCardCount()).isEqualTo(2);
+        assertThat(observer.echoCards()).isEmpty();
+
+        NobCardInstance chosen = state.getEchoHold().getFirst();
+        NobTestSupport.apply(state, "p1", new NobAction(
+                NobAction.CHOOSE_OPTION,
+                null, null, chosen.instanceId(), null, List.of(), "KEEP_FOR_LATER"
+        ));
+
+        NobView afterChoice = new NobGameProjector().project(state, NobTestSupport.viewer("p2"));
+        assertThat(afterChoice.echoCardCount()).isEqualTo(2);
+        assertThat(afterChoice.echoCards()).extracting(card -> card.cardCode()).containsExactly(chosen.cardCode());
+    }
+
+    @Test
     void shapeshifterEchoPlayNowStartsTheChosenCard() {
         NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
         give(state, "p1", "NOB-SH-02");
@@ -363,13 +392,20 @@ class NobNightAndEffectsTests {
     void moonThiefOnlyTargetsPlayersWithMoreTokensAndDoesNotEndGame() {
         NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
         give(state, "p1", "NOB-SH-05");
-        state.player("p2").getMoonMarks().add(NobMoonMark.of(3));
+        state.player("p1").getMoonMarks().add(NobMoonMark.of(2));
+        NobMoonMark richerFirst = NobMoonMark.of(3);
+        NobMoonMark richerSecond = NobMoonMark.of(4);
+        state.player("p2").getMoonMarks().add(richerFirst);
+        state.player("p2").getMoonMarks().add(richerSecond);
+        state.player("p3").getMoonMarks().add(NobMoonMark.of(2));
         NobTestSupport.apply(state, "p1", NobTestSupport.submit(hand(state, "p1").instanceId()));
         assertThat(state.getPendingDecision().allowedTargetIds()).containsExactly("p2");
         NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
-        assertThat(state.player("p1").moonMarkCount()).isEqualTo(1);
-        assertThat(state.player("p1").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(3);
-        assertThat(state.player("p2").moonMarkCount()).isZero();
+        assertThat(state.getPendingDecision().type()).isEqualTo(NobDecisionType.CHOOSE_MOON_TOKEN);
+        NobTestSupport.apply(state, "p1", NobTestSupport.option(richerFirst.tokenId()));
+        assertThat(state.player("p1").moonMarkCount()).isEqualTo(2);
+        assertThat(state.player("p1").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(2, 3);
+        assertThat(state.player("p2").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(4);
         assertThat(state.player("p1").getKnowledgeState()).isEqualTo(NobBloodlineKnowledge.PUBLICLY_REVEALED);
         assertThat(state.isFinished()).isFalse();
     }
@@ -387,13 +423,39 @@ class NobNightAndEffectsTests {
         assertThat(state.getPendingDecision().type()).isEqualTo(NobDecisionType.CHOOSE_MOON_TOKEN);
         assertThat(state.getPendingDecision().allowedOptions()).containsExactlyInAnyOrder(first.tokenId(), second.tokenId());
         NobView thief = new NobGameProjector().project(state, NobTestSupport.viewer("p1"));
-        assertThat(thief.myPendingDecision().optionValues()).containsExactlyInAnyOrder(2, 4);
+        assertThat(thief.myPendingDecision().optionValues()).hasSize(2).allMatch(value -> value == null);
         assertThat(new NobGameProjector().project(state, NobTestSupport.viewer("p3")).myPendingDecision()).isNull();
         assertThat(state.player("p1").getKnowledgeState()).isNotEqualTo(NobBloodlineKnowledge.PUBLICLY_REVEALED);
         NobTestSupport.apply(state, "p1", NobTestSupport.option(second.tokenId()));
         assertThat(state.player("p1").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(4);
         assertThat(state.player("p2").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(2);
         assertThat(state.player("p1").getKnowledgeState()).isEqualTo(NobBloodlineKnowledge.PUBLICLY_REVEALED);
+    }
+
+    @Test
+    void moonThiefOffersEveryMoonMarkWhenTargetHasMoreThanTwo() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-05");
+        state.player("p1").getMoonMarks().add(NobMoonMark.of(2));
+        NobMoonMark first = NobMoonMark.of(3);
+        NobMoonMark second = NobMoonMark.of(4);
+        NobMoonMark third = NobMoonMark.of(2);
+        state.player("p2").getMoonMarks().add(first);
+        state.player("p2").getMoonMarks().add(second);
+        state.player("p2").getMoonMarks().add(third);
+
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(hand(state, "p1").instanceId()));
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
+        assertThat(state.getPendingDecision().type()).isEqualTo(NobDecisionType.CHOOSE_MOON_TOKEN);
+        assertThat(state.getPendingDecision().allowedOptions())
+                .containsExactlyInAnyOrder(first.tokenId(), second.tokenId(), third.tokenId());
+
+        NobView thief = new NobGameProjector().project(state, NobTestSupport.viewer("p1"));
+        assertThat(thief.myPendingDecision().optionValues()).hasSize(3).allMatch(value -> value == null);
+        NobTestSupport.apply(state, "p1", NobTestSupport.option(second.tokenId()));
+        assertThat(state.player("p1").getMoonMarks()).extracting(NobMoonMark::value).containsExactly(2, 4);
+        assertThat(state.player("p2").getMoonMarks()).extracting(NobMoonMark::value)
+                .containsExactlyInAnyOrder(3, 2);
     }
 
     @Test

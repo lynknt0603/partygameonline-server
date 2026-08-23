@@ -56,6 +56,7 @@ public class NobGameState {
     private final Map<String, List<String>> phaseSubmissions = new LinkedHashMap<>();
     private final Set<String> processedCommandIds = new HashSet<>();
     private final List<NobCardInstance> echoHold = new ArrayList<>();
+    private int echoCardCount;
     private NobCardInstance echoSource;
     private NobCardInstance echoPicked;
     private Instant phaseDeadline;
@@ -241,6 +242,14 @@ public class NobGameState {
         return echoHold;
     }
 
+    public int getEchoCardCount() {
+        return echoCardCount;
+    }
+
+    public void setEchoCardCount(int echoCardCount) {
+        this.echoCardCount = Math.max(0, echoCardCount);
+    }
+
     public NobCardInstance getEchoSource() {
         return echoSource;
     }
@@ -259,6 +268,7 @@ public class NobGameState {
 
     public void clearEchoShowcase() {
         echoHold.clear();
+        echoCardCount = 0;
         echoSource = null;
         echoPicked = null;
     }
