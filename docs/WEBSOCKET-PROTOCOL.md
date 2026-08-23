@@ -87,7 +87,7 @@ Each room-scoped message includes `payload.room` (`RoomResponse`). Game messages
 
 Never: opponent card ids, deck order, seed, or future randomness.
 
-NOB (`night-of-bloodlines`) uses the same envelope. View shape and `NOB_*` actions: `docs/NOB_FRONTEND_API_PROMPT.md`.
+NOB (`night-of-bloodlines`) uses the same envelope structure for all `NOB_*` action types and projected views.
 
 ## Demo actions
 

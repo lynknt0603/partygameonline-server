@@ -69,8 +69,3 @@ Start via generic room start. Actions: `NOB_DRAFT_PICK`, `NOB_PHASE_SUBMIT`, `NO
 
 Projection: own hand/draft/bloodline (when known), own Moon Mark values, own observations, own pending decision. Public: seats, alive, moon **count**, revealed cards, publicly revealed bloodlines. Never other hands, hidden bloodlines, other token values, discard identities.
 
-Frontend contract: `docs/NOB_FRONTEND_API_PROMPT.md`.
-
-## Not implemented here
-
-Reconnect grace and match history are implemented in later BE phases; see MEMORY.md.

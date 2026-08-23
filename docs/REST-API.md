@@ -57,7 +57,7 @@ NOB-specific REST (session + CSRF on POST):
 | GET | `/api/v1/games/nob/rooms/{roomId}/snapshot` | 200 viewer `NobView` |
 | POST | `/api/v1/games/nob/rooms/{roomId}/command` | 200 viewer `NobView` |
 
-Generic `POST /api/v1/rooms/{roomId}/start` still starts NOB. See `docs/NOB_FRONTEND_API_PROMPT.md`.
+Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required players are present.
 
 ### CreateRoomRequest
 
