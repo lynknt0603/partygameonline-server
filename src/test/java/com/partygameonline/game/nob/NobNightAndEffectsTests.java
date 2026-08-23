@@ -11,7 +11,9 @@ import com.partygameonline.game.nob.domain.NobDecisionType;
 import com.partygameonline.game.nob.application.NobRulesEngine;
 import com.partygameonline.game.nob.domain.NobAction;
 import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.nob.domain.NobInspectReveal;
 import com.partygameonline.game.nob.domain.NobMoonMark;
+import com.partygameonline.game.nob.domain.NobObservation;
 import com.partygameonline.game.nob.domain.NobPhase;
 import com.partygameonline.game.nob.domain.NobPhaseState;
 import com.partygameonline.game.core.SeededRandomSource;
@@ -141,6 +143,41 @@ class NobNightAndEffectsTests {
     }
 
     @Test
+    void shapeshifterSwapInvalidatesPreviouslySeenBloodlinesForEveryViewer() {
+        NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
+        give(state, "p1", "NOB-SH-01");
+        NobBloodline oldP2Bloodline = state.player("p2").getCurrentBloodline();
+        state.player("p4").getObservations().add(
+                new NobObservation("BLOODLINE", "p2", oldP2Bloodline, null, null));
+        state.player("p4").getObservations().add(
+                new NobObservation("CARD", "p2", null, "NOB-HU-06", null));
+        state.player("p4").setInspectReveal(
+                new NobInspectReveal("p2", oldP2Bloodline, null, Instant.now().plusSeconds(3)));
+
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(hand(state, "p1").instanceId()));
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p2", "p3"));
+        NobTestSupport.apply(state, "p1", NobTestSupport.option("SWAP"));
+
+        assertThat(state.player("p1").getObservations()).noneMatch(observation ->
+                "BLOODLINE".equals(observation.kind())
+                        && List.of("p2", "p3").contains(observation.targetPlayerId()));
+        assertThat(state.player("p4").getObservations()).noneMatch(observation ->
+                "BLOODLINE".equals(observation.kind())
+                        && List.of("p2", "p3").contains(observation.targetPlayerId()));
+        assertThat(state.player("p4").getObservations()).anyMatch(observation ->
+                "CARD".equals(observation.kind()) && "p2".equals(observation.targetPlayerId()));
+        assertThat(state.player("p4").getInspectReveal()).isNull();
+
+        NobView observer = new NobGameProjector().project(state, NobTestSupport.viewer("p4"));
+        assertThat(observer.myObservations()).noneMatch(observation ->
+                "BLOODLINE".equals(observation.kind())
+                        && List.of("p2", "p3").contains(observation.targetPlayerId()));
+        assertThat(observer.players().stream()
+                .filter(player -> List.of("p2", "p3").contains(player.playerId())))
+                .allMatch(player -> player.publiclyRevealedBloodline() == null);
+    }
+
+    @Test
     void shapeshifterKeepStillHidesIdentityCardsFromTheTwoTargets() {
         NobGameState state = preparedNight(NobPhase.SHAPESHIFTER);
         give(state, "p1", "NOB-SH-01");
@@ -155,6 +192,10 @@ class NobNightAndEffectsTests {
         assertThat(state.player("p3").getKnowledgeState()).isEqualTo(NobBloodlineKnowledge.UNKNOWN_AFTER_SWAP);
         assertThat(state.player("p2").knowsOwnBloodline()).isFalse();
         assertThat(state.player("p3").knowsOwnBloodline()).isFalse();
+        assertThat(state.player("p1").getObservations()).filteredOn(observation ->
+                "BLOODLINE".equals(observation.kind()))
+                .extracting(observation -> observation.targetPlayerId())
+                .containsExactlyInAnyOrder("p2", "p3");
         NobView p2 = new NobGameProjector().project(state, NobTestSupport.viewer("p2"));
         assertThat(p2.myBloodline()).isNull();
         assertThat(p2.myBloodlineKnowledge()).isEqualTo("UNKNOWN_AFTER_SWAP");

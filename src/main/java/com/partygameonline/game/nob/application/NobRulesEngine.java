@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class NobRulesEngine {
 
@@ -755,7 +756,29 @@ public final class NobRulesEngine {
         NobBloodline tmp = a.getCurrentBloodline();
         a.setCurrentBloodline(b.getCurrentBloodline());
         b.setCurrentBloodline(tmp);
+        invalidateObservedBloodlines(state, aId, bId);
         concealBloodlinesAfterShape(state, aId, bId, events);
+    }
+
+    private static void invalidateObservedBloodlines(NobGameState state, String aId, String bId) {
+        Set<String> swappedPlayerIds = Set.of(aId, bId);
+        for (NobPlayerState viewer : state.getPlayers()) {
+            viewer.getObservations().removeIf(observation ->
+                    "BLOODLINE".equals(observation.kind())
+                            && swappedPlayerIds.contains(observation.targetPlayerId()));
+            NobInspectReveal reveal = viewer.getInspectReveal();
+            if (reveal != null
+                    && reveal.bloodline() != null
+                    && swappedPlayerIds.contains(reveal.targetPlayerId())) {
+                viewer.setInspectReveal(reveal.cardCode() == null
+                        ? null
+                        : new NobInspectReveal(
+                                reveal.targetPlayerId(),
+                                null,
+                                reveal.cardCode(),
+                                reveal.displayUntil()));
+            }
+        }
     }
 
     private static void concealBloodlinesAfterShape(
