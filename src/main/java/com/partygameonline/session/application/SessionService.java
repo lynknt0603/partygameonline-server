@@ -45,6 +45,24 @@ public class SessionService {
         response.setHeader("Clear-Site-Data", "\"cookies\"");
     }
 
+    public PlayerPrincipal createMemberSession(
+            String playerId,
+            String displayName,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        HttpSession existingSession = request.getSession(false);
+        if (existingSession != null) {
+            request.changeSessionId();
+        }
+        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName);
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new PlayerAuthentication(principal));
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
+        return principal;
+    }
+
     private java.util.Optional<PlayerPrincipal> existingGuest() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null

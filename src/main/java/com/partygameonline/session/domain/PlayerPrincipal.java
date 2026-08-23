@@ -16,6 +16,10 @@ public record PlayerPrincipal(
         return new PlayerPrincipal(playerId, displayName, SessionKind.GUEST);
     }
 
+    public static PlayerPrincipal member(String playerId, String displayName) {
+        return new PlayerPrincipal(playerId, displayName, SessionKind.MEMBER);
+    }
+
     public PlayerPrincipal withDisplayName(String displayName) {
         return new PlayerPrincipal(playerId, displayName, kind);
     }
