@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.partygameonline.room.application.RoomService;
 import com.partygameonline.room.infrastructure.RoomRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -111,11 +112,12 @@ class MatchHistoryControllerTests {
 
     private Guest guest(String displayName) throws Exception {
         MockHttpSession session = new MockHttpSession();
-        MvcResult created = mockMvc.perform(post("/api/v1/session/guest")
+        String username = displayName.toLowerCase() + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        MvcResult created = mockMvc.perform(post("/api/v1/auth/register")
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"" + displayName + "\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         return new Guest(session, read(created, "$.playerId"), displayName);

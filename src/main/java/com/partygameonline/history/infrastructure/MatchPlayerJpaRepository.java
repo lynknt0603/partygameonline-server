@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface MatchPlayerJpaRepository extends JpaRepository<MatchPlayerEntity, UUID> {
 
     List<MatchPlayerEntity> findByMatchIdOrderBySeatAscIdAsc(UUID matchId);
+
+    List<MatchPlayerEntity> findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(Iterable<UUID> matchIds);
 }

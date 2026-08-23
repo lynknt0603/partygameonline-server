@@ -35,7 +35,9 @@ public class AuthService {
         }
         try {
             UserEntity user = users.saveAndFlush(UserEntity.newMember(normalized, passwordCipher.encrypt(password)));
-            return sessions.createMemberSession(user.getUserKey(), user.getDisplayName(), request, response);
+            return sessions.createMemberSession(
+                    user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), request, response
+            );
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
         }
@@ -49,7 +51,9 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(
                         "INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "Username or password is incorrect"
                 ));
-        return sessions.createMemberSession(user.getUserKey(), user.getDisplayName(), request, response);
+        return sessions.createMemberSession(
+                user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), request, response
+        );
     }
 
     private String normalize(String username) {

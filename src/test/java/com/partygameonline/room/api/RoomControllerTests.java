@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.partygameonline.room.infrastructure.RoomRepository;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -243,6 +244,30 @@ class RoomControllerTests {
     }
 
     @Test
+    void guestCannotCreateOrEnterRoom() throws Exception {
+        MockHttpSession guestSession = new MockHttpSession();
+        mockMvc.perform(post("/api/v1/session/guest")
+                        .session(guestSession)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Guest\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/v1/rooms")
+                        .session(guestSession)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"gameId\":\"demo-card-game\",\"name\":\"Guest room\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("MEMBER_LOGIN_REQUIRED"));
+
+        String roomId = createPublicRoom(guest("Host"));
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(guestSession))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("MEMBER_LOGIN_REQUIRED"));
+    }
+
+    @Test
     void concurrentJoinsDoNotExceedMaxPlayers() throws Exception {
         Guest host = guest("Linh");
         Guest a = guest("A");
@@ -293,11 +318,12 @@ class RoomControllerTests {
 
     private Guest guest(String displayName) throws Exception {
         MockHttpSession session = new MockHttpSession();
-        MvcResult created = mockMvc.perform(post("/api/v1/session/guest")
+        String username = displayName.toLowerCase() + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        MvcResult created = mockMvc.perform(post("/api/v1/auth/register")
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"" + displayName + "\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         return new Guest(session, read(created, "$.playerId"));

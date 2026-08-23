@@ -2,6 +2,10 @@ package com.partygameonline.history.application;
 
 import com.partygameonline.common.error.ResourceNotFoundException;
 import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.nob.domain.NobPlayerState;
+import com.partygameonline.game.core.GameRegistry;
+import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
+import com.partygameonline.history.api.dto.MatchHistoryPlayerResponse;
 import com.partygameonline.game.runtime.GameSession;
 import com.partygameonline.history.api.dto.MatchPlayerResponse;
 import com.partygameonline.history.api.dto.MatchResponse;
@@ -13,9 +17,12 @@ import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -32,13 +39,16 @@ public class MatchHistoryService {
 
     private final MatchJpaRepository matchJpaRepository;
     private final MatchPlayerJpaRepository matchPlayerJpaRepository;
+    private final GameRegistry gameRegistry;
 
     public MatchHistoryService(
             MatchJpaRepository matchJpaRepository,
-            MatchPlayerJpaRepository matchPlayerJpaRepository
+            MatchPlayerJpaRepository matchPlayerJpaRepository,
+            GameRegistry gameRegistry
     ) {
         this.matchJpaRepository = matchJpaRepository;
         this.matchPlayerJpaRepository = matchPlayerJpaRepository;
+        this.gameRegistry = gameRegistry;
     }
 
     @Transactional
@@ -64,17 +74,57 @@ public class MatchHistoryService {
         int seat = 0;
         for (RoomPlayer player : room.getPlayers()) {
             boolean winner = winners.contains(player.getPlayerId());
+            PlayerStatistics statistics = playerStatistics(session, player.getPlayerId());
             matchPlayerJpaRepository.save(MatchPlayerEntity.newPlayer(
                     match.getId(),
                     null,
                     player.getPlayerId(),
                     player.getDisplayName(),
                     seat,
-                    winner ? "WIN" : "LOSS"
+                    winner ? "WIN" : "LOSS",
+                    statistics.score(),
+                    statistics.role(),
+                    statistics.bloodline()
             ));
             seat += 1;
         }
         session.markPersisted(match.getId());
+    }
+
+    private static PlayerStatistics playerStatistics(GameSession session, String playerId) {
+        if (!(session.getState() instanceof NobGameState nob)) {
+            return PlayerStatistics.EMPTY;
+        }
+        return nob.getPlayers().stream()
+                .filter(player -> player.getPlayerId().equals(playerId))
+                .findFirst()
+                .map(MatchHistoryService::toStatistics)
+                .orElse(PlayerStatistics.EMPTY);
+    }
+
+    private static PlayerStatistics toStatistics(NobPlayerState player) {
+        String bloodline = player.getCurrentBloodline() == null
+                ? null
+                : player.getCurrentBloodline().type().name();
+        String role = java.util.stream.Stream.of(
+                        player.getUsedCards(),
+                        player.getRevealedCards(),
+                        player.getHand()
+                )
+                .flatMap(List::stream)
+                .map(card -> card.roleType().name())
+                .filter(value -> !"SPECIAL".equals(value))
+                .findFirst()
+                .orElse(null);
+        return new PlayerStatistics(
+                player.score(),
+                role,
+                bloodline
+        );
+    }
+
+    private record PlayerStatistics(Integer score, String role, String bloodline) {
+        private static final PlayerStatistics EMPTY = new PlayerStatistics(null, null, null);
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +161,120 @@ public class MatchHistoryService {
         return toResponse(match, players);
     }
 
+    @Transactional(readOnly = true)
+    public PageResponse<MatchHistoryItemResponse> listHistoryForPlayer(
+            String playerId,
+            Integer page,
+            Integer size,
+            String gameId
+    ) {
+        int pageNumber = page == null || page < 0 ? 0 : page;
+        int pageSize = size == null ? DEFAULT_SIZE : Math.min(Math.max(size, 1), MAX_SIZE);
+        Page<MatchEntity> matches = gameId == null || gameId.isBlank()
+                ? matchJpaRepository.findFinishedForPlayer(
+                        playerId,
+                        PageRequest.of(pageNumber, pageSize, Sort.by(Sort.Direction.DESC, "finishedAt"))
+                )
+                : matchJpaRepository.findFinishedForPlayerAndGame(
+                        playerId,
+                        gameId,
+                        PageRequest.of(pageNumber, pageSize, Sort.by(Sort.Direction.DESC, "finishedAt"))
+                );
+        Map<UUID, List<MatchPlayerEntity>> playersByMatch = playersByMatch(matches.getContent());
+        List<MatchHistoryItemResponse> content = matches.getContent().stream()
+                .map(match -> toHistoryItem(
+                        match,
+                        playersByMatch.getOrDefault(match.getId(), List.of()),
+                        playerId
+                ))
+                .toList();
+        return new PageResponse<>(
+                content,
+                matches.getNumber(),
+                matches.getSize(),
+                matches.getTotalElements(),
+                matches.getTotalPages()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public MatchHistoryItemResponse getHistoryForPlayer(String playerId, UUID matchId) {
+        MatchEntity match = matchJpaRepository.findById(matchId)
+                .filter(item -> item.getFinishedAt() != null)
+                .orElseThrow(() -> new ResourceNotFoundException("MATCH_NOT_FOUND", "The match was not found"));
+        List<MatchPlayerEntity> players = matchPlayerJpaRepository.findByMatchIdOrderBySeatAscIdAsc(matchId);
+        if (players.stream().noneMatch(player -> player.getPlayerId().equals(playerId))) {
+            throw new ResourceNotFoundException("MATCH_NOT_FOUND", "The match was not found");
+        }
+        return toHistoryItem(match, players, playerId);
+    }
+
+    private Map<UUID, List<MatchPlayerEntity>> playersByMatch(List<MatchEntity> matches) {
+        if (matches.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, List<MatchPlayerEntity>> grouped = new HashMap<>();
+        matchPlayerJpaRepository.findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(
+                        matches.stream().map(MatchEntity::getId).toList()
+                )
+                .forEach(player -> grouped.computeIfAbsent(player.getMatchId(), ignored -> new ArrayList<>()).add(player));
+        return grouped;
+    }
+
+    private MatchHistoryItemResponse toHistoryItem(
+            MatchEntity match,
+            List<MatchPlayerEntity> players,
+            String viewerPlayerId
+    ) {
+        MatchPlayerEntity viewer = players.stream()
+                .filter(player -> player.getPlayerId().equals(viewerPlayerId))
+                .findFirst()
+                .orElse(null);
+        String viewerResult = viewer == null ? resultFor(match, viewerPlayerId) : resultFor(viewer);
+        return new MatchHistoryItemResponse(
+                match.getId(),
+                match.getGameId(),
+                gameRegistry.findById(match.getGameId()).map(game -> game.name()).orElse(match.getGameId()),
+                match.getRoomId(),
+                match.getFinishedAt(),
+                durationSeconds(match),
+                viewerResult,
+                viewer == null ? null : viewer.getScore(),
+                viewer == null ? null : viewer.getRole(),
+                viewer == null ? null : viewer.getBloodline(),
+                players.stream().map(this::toHistoryPlayer).toList()
+        );
+    }
+
+    private MatchHistoryPlayerResponse toHistoryPlayer(MatchPlayerEntity player) {
+        return new MatchHistoryPlayerResponse(
+                player.getPlayerId(),
+                player.getDisplayName(),
+                resultFor(player),
+                player.getScore(),
+                player.getRole(),
+                player.getBloodline()
+        );
+    }
+
+    private String resultFor(MatchPlayerEntity player) {
+        return player.getResult() == null ? "LOSS" : player.getResult();
+    }
+
+    private String resultFor(MatchEntity match, String playerId) {
+        if (match.getWinnerPlayerId() == null) {
+            return "DRAW";
+        }
+        return playerId.equals(match.getWinnerPlayerId()) ? "WIN" : "LOSS";
+    }
+
+    private long durationSeconds(MatchEntity match) {
+        if (match.getStartedAt() == null || match.getFinishedAt() == null) {
+            return 0;
+        }
+        return Math.max(0, Duration.between(match.getStartedAt(), match.getFinishedAt()).getSeconds());
+    }
+
     private MatchResponse toResponse(MatchEntity match) {
         return toResponse(match, matchPlayerJpaRepository.findByMatchIdOrderBySeatAscIdAsc(match.getId()));
     }
@@ -129,7 +293,11 @@ public class MatchHistoryService {
                                 player.getPlayerId(),
                                 player.getDisplayName(),
                                 player.getSeat() == null ? null : player.getSeat().intValue(),
-                                "WIN".equals(player.getResult())
+                                "WIN".equals(player.getResult()),
+                                player.getResult() == null ? "LOSS" : player.getResult(),
+                                player.getScore(),
+                                player.getRole(),
+                                player.getBloodline()
                         ))
                         .toList()
         );

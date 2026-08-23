@@ -6,6 +6,7 @@ import com.partygameonline.session.domain.SessionKind;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -48,6 +49,7 @@ public class SessionService {
     public PlayerPrincipal createMemberSession(
             String playerId,
             String displayName,
+            Instant createdAt,
             HttpServletRequest request,
             HttpServletResponse response
     ) {
@@ -55,7 +57,7 @@ public class SessionService {
         if (existingSession != null) {
             request.changeSessionId();
         }
-        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName);
+        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName, createdAt);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new PlayerAuthentication(principal));
         SecurityContextHolder.setContext(context);

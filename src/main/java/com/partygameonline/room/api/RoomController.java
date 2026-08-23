@@ -5,6 +5,7 @@ import com.partygameonline.room.api.dto.ReadyRequest;
 import com.partygameonline.room.api.dto.RoomResponse;
 import com.partygameonline.room.api.dto.RoomSettingsRequest;
 import com.partygameonline.room.application.RoomService;
+import com.partygameonline.common.error.ApiException;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -40,6 +41,7 @@ public class RoomController {
             @AuthenticationPrincipal PlayerPrincipal principal,
             @Valid @RequestBody CreateRoomRequest request
     ) {
+        requireMember(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(RoomResponse.from(roomService.create(
                 principal,
                 request.gameId(),
@@ -50,7 +52,11 @@ public class RoomController {
     }
 
     @GetMapping("/{roomId}")
-    public RoomResponse get(@PathVariable String roomId) {
+    public RoomResponse get(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @PathVariable String roomId
+    ) {
+        requireMember(principal);
         return RoomResponse.from(roomService.get(roomId));
     }
 
@@ -59,6 +65,7 @@ public class RoomController {
             @AuthenticationPrincipal PlayerPrincipal principal,
             @PathVariable String roomId
     ) {
+        requireMember(principal);
         return RoomResponse.from(roomService.join(principal, roomId));
     }
 
@@ -68,6 +75,7 @@ public class RoomController {
             @AuthenticationPrincipal PlayerPrincipal principal,
             @PathVariable String roomId
     ) {
+        requireMember(principal);
         roomService.leave(principal, roomId);
     }
 
@@ -77,6 +85,7 @@ public class RoomController {
             @PathVariable String roomId,
             @Valid @RequestBody ReadyRequest request
     ) {
+        requireMember(principal);
         return RoomResponse.from(roomService.ready(principal, roomId, request.ready()));
     }
 
@@ -86,6 +95,7 @@ public class RoomController {
             @PathVariable String roomId,
             @RequestBody RoomSettingsRequest request
     ) {
+        requireMember(principal);
         return RoomResponse.from(roomService.updateSettings(
                 principal,
                 roomId,
@@ -99,6 +109,7 @@ public class RoomController {
             @AuthenticationPrincipal PlayerPrincipal principal,
             @PathVariable String roomId
     ) {
+        requireMember(principal);
         roomService.close(principal, roomId);
     }
 
@@ -107,6 +118,17 @@ public class RoomController {
             @AuthenticationPrincipal PlayerPrincipal principal,
             @PathVariable String roomId
     ) {
+        requireMember(principal);
         return RoomResponse.from(roomService.start(principal, roomId));
+    }
+
+    private void requireMember(PlayerPrincipal principal) {
+        if (principal == null || principal.kind() != com.partygameonline.session.domain.SessionKind.MEMBER) {
+            throw new ApiException(
+                    "MEMBER_LOGIN_REQUIRED",
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "Login is required to enter or create a room"
+            );
+        }
     }
 }
