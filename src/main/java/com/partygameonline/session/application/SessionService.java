@@ -6,6 +6,7 @@ import com.partygameonline.session.domain.SessionKind;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -43,6 +44,25 @@ public class SessionService {
             session.invalidate();
         }
         response.setHeader("Clear-Site-Data", "\"cookies\"");
+    }
+
+    public PlayerPrincipal createMemberSession(
+            String playerId,
+            String displayName,
+            Instant createdAt,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        HttpSession existingSession = request.getSession(false);
+        if (existingSession != null) {
+            request.changeSessionId();
+        }
+        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName, createdAt);
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new PlayerAuthentication(principal));
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
+        return principal;
     }
 
     private java.util.Optional<PlayerPrincipal> existingGuest() {

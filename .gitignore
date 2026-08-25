@@ -17,3 +17,13 @@ Thumbs.db
 *.swp
 hs_err_pid*
 replay_pid*
+*.bundle
+
+# Agent, Memory and Prompt documentation
+GEMINI.md
+MEMORY.md
+promt/
+prompts/
+docs/*PROMPT*.md
+docs/*UPDATE*.md
+docs/*UX*.md

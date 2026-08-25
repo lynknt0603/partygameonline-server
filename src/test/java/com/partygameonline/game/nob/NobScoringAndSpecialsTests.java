@@ -6,7 +6,6 @@ import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.nob.catalog.NobCardCatalog;
 import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobCardInstance;
-import com.partygameonline.game.nob.domain.NobDecisionType;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobMoonMark;
 import com.partygameonline.game.nob.domain.NobPhase;
@@ -22,11 +21,15 @@ class NobScoringAndSpecialsTests {
         state.player("p2").getHand().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-VEIL-REVERSAL")));
         NobTestSupport.apply(state, "p1", NobTestSupport.submit(state.player("p1").getHand().getFirst().instanceId()));
         NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
-        NobTestSupport.apply(state, "p2", NobTestSupport.reaction("VEIL_REVERSAL"));
         assertThat(state.player("p2").isAlive()).isTrue();
         assertThat(state.player("p1").isAlive()).isFalse();
         assertThat(state.getActiveKill()).isNull();
         assertThat(state.getPendingDecision()).isNull();
+        assertThat(state.getCurrentResolvingCard().cardCode()).isEqualTo("NOB-SP-VEIL-REVERSAL");
+        assertThat(state.player("p2").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-SP-VEIL-REVERSAL");
+        assertThat(state.player("p2").getHand()).extracting(NobCardInstance::cardCode)
+                .doesNotContain("NOB-SP-VEIL-REVERSAL");
     }
 
     @Test
@@ -35,10 +38,53 @@ class NobScoringAndSpecialsTests {
         state.player("p2").getHand().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-LAST-OFFERING")));
         NobTestSupport.apply(state, "p1", NobTestSupport.submit(state.player("p1").getHand().getFirst().instanceId()));
         NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
-        NobTestSupport.apply(state, "p2", NobTestSupport.reaction("LAST_OFFERING"));
         assertThat(state.player("p2").isAlive()).isFalse();
         assertThat(state.player("p2").moonMarkCount()).isEqualTo(1);
         assertThat(state.player("p1").isAlive()).isTrue();
+        assertThat(NobScoringService.usedLastOffering(state.player("p2"))).isTrue();
+        assertThat(state.getPendingDecision()).isNull();
+        assertThat(state.getCurrentResolvingCard().cardCode()).isEqualTo("NOB-SP-LAST-OFFERING");
+        assertThat(state.player("p2").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-SP-LAST-OFFERING");
+    }
+
+    @Test
+    void veilReversalTakesPriorityOverLastOffering() {
+        NobGameState state = killSetup();
+        state.player("p2").getHand().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-LAST-OFFERING")));
+        state.player("p2").getHand().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-VEIL-REVERSAL")));
+        NobTestSupport.apply(state, "p1", NobTestSupport.submit(state.player("p1").getHand().getFirst().instanceId()));
+        NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
+        assertThat(state.player("p2").isAlive()).isTrue();
+        assertThat(state.player("p1").isAlive()).isFalse();
+        assertThat(state.getCurrentResolvingCard().cardCode()).isEqualTo("NOB-SP-VEIL-REVERSAL");
+        assertThat(state.player("p2").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-SP-VEIL-REVERSAL")
+                .doesNotContain("NOB-SP-LAST-OFFERING");
+        assertThat(state.player("p2").getHand()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-SP-LAST-OFFERING");
+        assertThat(state.player("p2").moonMarkCount()).isZero();
+    }
+
+    @Test
+    void lastOfferingStillPicksAtRoundEndAndOpensTwoIfFactionWins() {
+        NobGameState state = scoredState();
+        state.player("p1").setCurrentBloodline(NobBloodline.vampire(1));
+        state.player("p1").setAlive(false);
+        state.player("p1").getRevealedCards().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-LAST-OFFERING")));
+        state.player("p2").setCurrentBloodline(NobBloodline.vampire(2));
+        state.player("p3").setCurrentBloodline(NobBloodline.werewolf(1));
+        state.player("p3").setAlive(false);
+        state.player("p3").getRevealedCards().add(NobCardInstance.from(NobCardCatalog.require("NOB-SP-LAST-OFFERING")));
+        state.player("p4").setCurrentBloodline(NobBloodline.werewolf(3));
+        assertThat(NobScoringService.compareSurvivors(state)).isEqualTo(NobScoringService.MainResult.VAMPIRE);
+        assertThat(NobScoringService.rewardPlayerIds(state, NobScoringService.MainResult.VAMPIRE))
+                .contains("p1", "p2", "p3")
+                .doesNotContain("p4");
+        assertThat(NobScoringService.moonPicksNeeded(state, "p1")).isEqualTo(2);
+        assertThat(NobScoringService.moonPicksNeeded(state, "p2")).isEqualTo(1);
+        assertThat(NobScoringService.moonPicksNeeded(state, "p3")).isEqualTo(1);
+        assertThat(NobScoringService.moonPicksNeeded(state, "p4")).isEqualTo(1);
     }
 
     @Test
@@ -134,9 +180,11 @@ class NobScoringAndSpecialsTests {
         NobTestSupport.apply(state, "p1", NobTestSupport.submit(state.player("p1").getHand().getFirst().instanceId()));
         NobTestSupport.apply(state, "p1", NobTestSupport.target("p2"));
         NobTestSupport.apply(state, "p1", NobTestSupport.hunter("ELIMINATE"));
-        assertThat(state.getPendingDecision().type()).isEqualTo(NobDecisionType.REACTION);
-        NobTestSupport.apply(state, "p2", NobTestSupport.reaction("DECLINE"));
+        assertThat(state.getPendingDecision()).isNull();
         assertThat(state.player("p2").isAlive()).isFalse();
+        assertThat(state.getCurrentResolvingCard().cardCode()).isEqualTo("NOB-SP-LAST-OFFERING");
+        assertThat(state.player("p2").getRevealedCards()).extracting(NobCardInstance::cardCode)
+                .contains("NOB-SP-LAST-OFFERING");
     }
 
     private static NobGameState killSetup() {

@@ -49,7 +49,8 @@ final class NobTestSupport {
                     action.cardCode(),
                     action.targetPlayerIds(),
                     action.option(),
-                    state.getPendingDecision().decisionId()
+                    state.getPendingDecision().decisionId(),
+                    action.cardInstanceIds()
             );
         } else if (resolved.decisionId() == null && state.hasUnclaimedMoonPick(actorId)) {
             resolved = new NobAction(
@@ -60,7 +61,8 @@ final class NobTestSupport {
                     action.cardCode(),
                     action.targetPlayerIds(),
                     action.option(),
-                    "moon-" + actorId
+                    "moon-" + actorId,
+                    action.cardInstanceIds()
             );
         }
         ValidationResult validation = NobRulesEngine.validate(state, actorId, resolved);
@@ -97,6 +99,24 @@ final class NobTestSupport {
 
     static NobAction submit(String instanceId) {
         return new NobAction(NobAction.PHASE_SUBMIT, null, null, instanceId, null, List.of(), null);
+    }
+
+    static NobAction submitBoth() {
+        return new NobAction(NobAction.PHASE_SUBMIT, null, null, null, null, List.of(), "PLAY_BOTH");
+    }
+
+    static NobAction submitCards(String... instanceIds) {
+        return new NobAction(
+                NobAction.PHASE_SUBMIT,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                List.of(instanceIds)
+        );
     }
 
     static NobAction target(String... playerIds) {

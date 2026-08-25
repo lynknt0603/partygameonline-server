@@ -1,0 +1,65 @@
+package com.partygameonline.profile.api;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class ProfileStatsControllerTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void guestWithoutMatchesReceivesZeroNobStats() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        mockMvc.perform(post("/api/v1/session/guest")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Stats Guest\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/profile/me/stats").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.playerId").isNotEmpty())
+                .andExpect(jsonPath("$.player.displayName").value("Stats Guest"))
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatar-default.png"))
+                .andExpect(jsonPath("$.player.joinedAt").isNotEmpty())
+                .andExpect(jsonPath("$.player.role").value("Guest"))
+                .andExpect(jsonPath("$.player.platform").value("Web"))
+                .andExpect(jsonPath("$.nobStats.totalMatches").value(0))
+                .andExpect(jsonPath("$.nobStats.matchesWon").value(0))
+                .andExpect(jsonPath("$.nobStats.winRate").value(0.0))
+                .andExpect(jsonPath("$.nobStats.elo").value(5000))
+                .andExpect(jsonPath("$.nobStats.highestElo").value(5000))
+                .andExpect(jsonPath("$.nobStats.vampire.matchesPlayed").value(0))
+                .andExpect(jsonPath("$.nobStats.vampire.matchesWon").value(0))
+                .andExpect(jsonPath("$.nobStats.vampire.winRate").value(0.0))
+                .andExpect(jsonPath("$.nobStats.werewolf.matchesPlayed").value(0))
+                .andExpect(jsonPath("$.nobStats.werewolf.matchesWon").value(0))
+                .andExpect(jsonPath("$.nobStats.werewolf.winRate").value(0.0))
+                .andExpect(jsonPath("$.nobStats.halfblood.matchesPlayed").value(0))
+                .andExpect(jsonPath("$.nobStats.halfblood.matchesWon").value(0))
+                .andExpect(jsonPath("$.nobStats.halfblood.winRate").value(0.0));
+
+        mockMvc.perform(get("/api/v1/matches/history?page=0&size=10").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+}

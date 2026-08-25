@@ -3,13 +3,16 @@ package com.partygameonline.history.api;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.partygameonline.room.application.RoomService;
+import com.partygameonline.history.infrastructure.MatchEntity;
+import com.partygameonline.history.infrastructure.MatchJpaRepository;
+import com.partygameonline.history.infrastructure.MatchPlayerEntity;
+import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.room.infrastructure.RoomRepository;
-import com.partygameonline.session.domain.PlayerPrincipal;
+import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,26 +36,42 @@ class MatchHistoryControllerTests {
     private RoomRepository roomRepository;
 
     @Autowired
-    private RoomService roomService;
+    private MatchJpaRepository matchJpaRepository;
+
+    @Autowired
+    private MatchPlayerJpaRepository matchPlayerJpaRepository;
 
     @BeforeEach
     void clearRooms() {
         roomRepository.deleteAll();
+        matchPlayerJpaRepository.deleteAll();
+        matchJpaRepository.deleteAll();
     }
 
     @Test
     void finishedMatchAppearsInHistoryWithoutHiddenCards() throws Exception {
         Guest host = guest("Linh");
         Guest joiner = guest("Minh");
-        String roomId = createReadyStartedRoom(host, joiner);
-
-        roomService.socketDisconnected(PlayerPrincipal.guest(joiner.playerId, joiner.displayName()));
-        roomService.expireDisconnect(joiner.playerId);
+        Instant startedAt = Instant.now().minusSeconds(30);
+        MatchEntity match = matchJpaRepository.saveAndFlush(MatchEntity.completed(
+                "night-of-bloodlines",
+                "ABCD",
+                host.playerId,
+                "FORFEIT",
+                startedAt,
+                Instant.now()
+        ));
+        matchPlayerJpaRepository.saveAndFlush(
+                MatchPlayerEntity.newPlayer(match.getId(), null, host.playerId, host.displayName, 0, "WIN")
+        );
+        matchPlayerJpaRepository.saveAndFlush(
+                MatchPlayerEntity.newPlayer(match.getId(), null, joiner.playerId, joiner.displayName, 1, "LOSS")
+        );
 
         MvcResult listed = mockMvc.perform(get("/api/v1/matches?page=0&size=20").session(host.session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].gameId").value("demo-card-game"))
+                .andExpect(jsonPath("$.content[0].gameId").value("night-of-bloodlines"))
                 .andExpect(jsonPath("$.content[0].winnerPlayerId").value(host.playerId))
                 .andExpect(jsonPath("$.content[0].result").value("FORFEIT"))
                 .andExpect(jsonPath("$.content[0].players.length()").value(2))
@@ -79,43 +98,14 @@ class MatchHistoryControllerTests {
                 .andExpect(status().isUnauthorized());
     }
 
-    private String createReadyStartedRoom(Guest host, Guest joiner) throws Exception {
-        MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"gameId":"demo-card-game","name":"History","visibility":"PUBLIC"}
-                                """))
-                .andExpect(status().isCreated())
-                .andReturn();
-        String roomId = read(created, "$.id");
-        mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join").session(joiner.session).with(csrf()))
-                .andExpect(status().isOk());
-        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                        .session(host.session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ready\":true}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                        .session(joiner.session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ready\":true}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start").session(host.session).with(csrf()))
-                .andExpect(status().isOk());
-        return roomId;
-    }
-
     private Guest guest(String displayName) throws Exception {
         MockHttpSession session = new MockHttpSession();
-        MvcResult created = mockMvc.perform(post("/api/v1/session/guest")
+        String username = displayName.toLowerCase() + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        MvcResult created = mockMvc.perform(post("/api/v1/auth/register")
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"" + displayName + "\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         return new Guest(session, read(created, "$.playerId"), displayName);

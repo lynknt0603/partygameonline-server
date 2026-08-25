@@ -37,4 +37,6 @@ public interface RoomRealtimePublisher {
     void resyncRequired(GameRoom room, String requestId, String playerId);
 
     void actionRejected(String roomId, String requestId, String playerId, String errorCode, String message);
+
+    void roomChat(GameRoom room, String requestId, RoomChatMessage message);
 }

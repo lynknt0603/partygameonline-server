@@ -148,11 +148,31 @@ public class WebSocketRoomRealtimePublisher implements RoomRealtimePublisher {
     }
 
     public void snapshot(GameRoom room, String requestId, String playerId, Object view) {
+        snapshot(room, requestId, playerId, view, List.of());
+    }
+
+    public void snapshot(
+            GameRoom room,
+            String requestId,
+            String playerId,
+            Object view,
+            List<RoomChatMessage> chat
+    ) {
         Map<String, Object> extra = new LinkedHashMap<>();
         if (view != null) {
             extra.put("view", view);
         }
+        if (chat != null && !chat.isEmpty()) {
+            extra.put("chat", chat);
+        }
         emit(room, WsMessageTypes.ROOM_SNAPSHOT, room.getServerSequence(), requestId, extra, Set.of(playerId));
+    }
+
+    @Override
+    public void roomChat(GameRoom room, String requestId, RoomChatMessage message) {
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("message", message);
+        emit(room, WsMessageTypes.ROOM_CHAT, room.getServerSequence(), requestId, extra, recipients(room));
     }
 
     private void emitStateChange(

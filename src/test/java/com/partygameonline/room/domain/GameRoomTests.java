@@ -38,7 +38,6 @@ class GameRoomTests {
                 .extracting(ex -> ((RoomException) ex).getErrorCode())
                 .isEqualTo("PLAYERS_NOT_READY");
 
-        room.setReady("host", true);
         room.setReady("p2", true);
         room.start("host", 2);
 
@@ -47,6 +46,13 @@ class GameRoomTests {
         assertThat(room.getStatus()).isEqualTo(RoomStatus.IN_GAME);
         room.markFinished();
         assertThat(room.getStatus()).isEqualTo(RoomStatus.FINISHED);
+        room.returnToWaiting();
+        assertThat(room.getStatus()).isEqualTo(RoomStatus.WAITING);
+        assertThat(room.getPlayers()).allMatch(player -> !player.isReady());
+        room.setReady("p2", true);
+        room.start("host", 2);
+        room.markInGame();
+        room.markFinished();
         assertThatThrownBy(() -> room.join("p3", "Late"))
                 .extracting(ex -> ((RoomException) ex).getErrorCode())
                 .isEqualTo("ROOM_ALREADY_STARTED");
@@ -57,7 +63,7 @@ class GameRoomTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Linh's Room"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "host",
                 "Linh",
                 5,
@@ -98,7 +104,6 @@ class GameRoomTests {
     void leaveAfterGameOverRemovesPlayer() {
         GameRoom room = waitingRoom();
         room.join("p2", "Guest");
-        room.setReady("host", true);
         room.setReady("p2", true);
         room.start("host", 2);
         room.markInGame();
@@ -114,7 +119,7 @@ class GameRoomTests {
         return new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Linh's Room"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "host",
                 "Linh",
                 2,

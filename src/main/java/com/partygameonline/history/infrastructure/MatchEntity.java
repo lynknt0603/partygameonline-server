@@ -27,6 +27,9 @@ public class MatchEntity {
     @Column(length = 32)
     private String result;
 
+    @Column(name = "elo_processed", nullable = false)
+    private boolean eloProcessed;
+
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -58,6 +61,7 @@ public class MatchEntity {
         this.roomId = roomId;
         this.winnerPlayerId = winnerPlayerId;
         this.result = result;
+        this.eloProcessed = false;
         this.startedAt = startedAt;
         this.finishedAt = finishedAt;
         this.createdAt = createdAt;
@@ -111,6 +115,14 @@ public class MatchEntity {
 
     public String getResult() {
         return result;
+    }
+
+    public boolean isEloProcessed() {
+        return eloProcessed;
+    }
+
+    public void markEloProcessed() {
+        this.eloProcessed = true;
     }
 
     public Instant getStartedAt() {

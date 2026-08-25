@@ -37,7 +37,7 @@ public record NobTimingSettings(
             case HUNTER_DECISION -> hunterDecisionSeconds;
             case REACTION -> reactionDecisionSeconds;
             case MOON_MARK_PICK -> roundSummarySeconds;
-            case SHAPE_SWAP, UNMASK_REVEAL, ECHO_CHOOSE, MOON_BROKER, CHOOSE_OPTION -> optionDecisionSeconds;
+            case SHAPE_SWAP, UNMASK_REVEAL, ECHO_CHOOSE, MOON_BROKER, CHOOSE_MOON_TOKEN, CHOOSE_OPTION -> optionDecisionSeconds;
             default -> optionDecisionSeconds;
         };
     }

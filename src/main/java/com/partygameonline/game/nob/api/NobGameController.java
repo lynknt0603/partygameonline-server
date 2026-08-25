@@ -117,6 +117,7 @@ public class NobGameController {
             realtimePublisher.gameEvents(room, requestId, principal.playerId(), events, views);
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, requestId, applied.result().winnerPlayerId(), views);
+                roomService.recycleFinishedRoom(room);
             }
             return (NobView) views.get(principal.playerId());
         });

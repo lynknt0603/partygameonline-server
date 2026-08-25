@@ -21,6 +21,7 @@ public class NobGameState {
     public static final int MIN_PLAYERS = 4;
     public static final int MAX_PLAYERS = 11;
     public static final int TARGET_SCORE = 10;
+    public static final int HURRY_UP_SECONDS = 5;
 
     private final String roomId;
     private int roundNumber = 1;
@@ -40,7 +41,13 @@ public class NobGameState {
     private final List<String> roundRewardPlayerIds = new ArrayList<>();
     private final Map<String, List<NobMoonTokenOption>> moonTokenOffers = new LinkedHashMap<>();
     private final Set<String> moonTokenClaimed = new HashSet<>();
+    private final Map<String, Integer> moonPickNeed = new LinkedHashMap<>();
+    private final Map<String, Integer> moonPicksTaken = new LinkedHashMap<>();
     private final List<String> winnerPlayerIds = new ArrayList<>();
+    private final List<NobCompletedRound> completedRounds = new ArrayList<>();
+    private final Map<Integer, Map<String, NobEloChange>> roundEloChanges = new LinkedHashMap<>();
+    private final Map<String, Integer> eloSimulation = new LinkedHashMap<>();
+    private final Map<String, NobEloChange> finalEloChanges = new LinkedHashMap<>();
     private final List<NobPlayerState> players = new ArrayList<>();
     private final List<NobCardInstance> discardPile = new ArrayList<>();
     private final List<NobCardInstance> undealt = new ArrayList<>();
@@ -50,9 +57,12 @@ public class NobGameState {
     private final List<NobPublicLogEntry> publicLog = new ArrayList<>();
     private final Map<String, List<NobCardInstance>> draftHands = new LinkedHashMap<>();
     private final Map<String, String> draftPicks = new LinkedHashMap<>();
-    private final Map<String, String> phaseSubmissions = new LinkedHashMap<>();
+    private final Map<String, List<String>> phaseSubmissions = new LinkedHashMap<>();
     private final Set<String> processedCommandIds = new HashSet<>();
     private final List<NobCardInstance> echoHold = new ArrayList<>();
+    private int echoCardCount;
+    private NobCardInstance echoSource;
+    private NobCardInstance echoPicked;
     private Instant phaseDeadline;
     private NobKillAttempt activeKill;
 
@@ -173,11 +183,21 @@ public class NobGameState {
     }
 
     public void holdResultDisplay() {
+        holdResultDisplay(timing.resolutionCardDisplayMs());
+    }
+
+    public void holdResultDisplay(int millis) {
         phaseState = NobPhaseState.RESOLUTION_RESULT_DISPLAY;
         pendingDecision = null;
         if (resolutionDisplayExpiresAt == null) {
-            resolutionDisplayExpiresAt = Instant.now().plusMillis(Math.max(timing.resolutionCardDisplayMs(), 1));
+            resolutionDisplayExpiresAt = Instant.now().plusMillis(Math.max(millis, 1));
         }
+    }
+
+    public void holdResultDisplayFor(int millis) {
+        phaseState = NobPhaseState.RESOLUTION_RESULT_DISPLAY;
+        pendingDecision = null;
+        resolutionDisplayExpiresAt = Instant.now().plusMillis(Math.max(millis, 1));
     }
 
     public NobCardInstance getCurrentResolvingCard() {
@@ -226,6 +246,37 @@ public class NobGameState {
         return echoHold;
     }
 
+    public int getEchoCardCount() {
+        return echoCardCount;
+    }
+
+    public void setEchoCardCount(int echoCardCount) {
+        this.echoCardCount = Math.max(0, echoCardCount);
+    }
+
+    public NobCardInstance getEchoSource() {
+        return echoSource;
+    }
+
+    public void setEchoSource(NobCardInstance echoSource) {
+        this.echoSource = echoSource;
+    }
+
+    public NobCardInstance getEchoPicked() {
+        return echoPicked;
+    }
+
+    public void setEchoPicked(NobCardInstance echoPicked) {
+        this.echoPicked = echoPicked;
+    }
+
+    public void clearEchoShowcase() {
+        echoHold.clear();
+        echoCardCount = 0;
+        echoSource = null;
+        echoPicked = null;
+    }
+
     public void configure(int targetScore, int draftSeconds, int phaseSubmitSeconds, int decisionSeconds, int reactionSeconds) {
         configure(targetScore, new NobTimingSettings(
                 draftSeconds,
@@ -261,12 +312,18 @@ public class NobGameState {
                 && !phaseDeadline.isAfter(now)) {
             return true;
         }
-        return pendingDecision == null
+        if (pendingDecision == null
                 && phaseDeadline != null
                 && !phaseDeadline.isAfter(now)
                 && (phase == NobPhase.DRAFT_PICK_1
                 || phase == NobPhase.DRAFT_PICK_2
-                || phaseState == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS);
+                || (phaseState == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS && currentResolvingCard == null))) {
+            return true;
+        }
+        return pendingDecision == null
+                && activeKill == null
+                && currentResolvingCard != null
+                && resolutionDisplayExpiresAt == null;
     }
 
     public List<String> getRoundRewardPlayerIds() {
@@ -282,7 +339,25 @@ public class NobGameState {
     }
 
     public boolean hasUnclaimedMoonPick(String playerId) {
-        return moonTokenOffers.containsKey(playerId) && !moonTokenClaimed.contains(playerId);
+        if (!moonTokenOffers.containsKey(playerId) || moonTokenClaimed.contains(playerId)) {
+            return false;
+        }
+        return moonPicksTaken.getOrDefault(playerId, 0) < moonPickNeed.getOrDefault(playerId, 1);
+    }
+
+    public int moonPicksNeeded(String playerId) {
+        return moonPickNeed.getOrDefault(playerId, 1);
+    }
+
+    public int moonPicksTaken(String playerId) {
+        return moonPicksTaken.getOrDefault(playerId, 0);
+    }
+
+    public void recordMoonPick(String playerId) {
+        moonPicksTaken.put(playerId, moonPicksTaken.getOrDefault(playerId, 0) + 1);
+        if (moonPicksTaken.getOrDefault(playerId, 0) >= moonPickNeed.getOrDefault(playerId, 1)) {
+            moonTokenClaimed.add(playerId);
+        }
     }
 
     public List<String> unclaimedMoonPlayerIds() {
@@ -302,12 +377,27 @@ public class NobGameState {
         roundRewardPlayerIds.addAll(rewardIds);
         moonTokenOffers.clear();
         moonTokenClaimed.clear();
+        moonPickNeed.clear();
+        moonPicksTaken.clear();
         for (String playerId : rewardIds) {
             List<NobMoonTokenOption> options = new ArrayList<>(3);
             for (int i = 0; i < 3; i++) {
-                options.add(new NobMoonTokenOption(UUID.randomUUID().toString(), drawMoonMark(random)));
+                NobMoonMark mark = drawMoonMark(random);
+                if (mark == null) {
+                    break;
+                }
+                options.add(new NobMoonTokenOption(UUID.randomUUID().toString(), mark));
             }
+            if (options.isEmpty()) {
+                continue;
+            }
+            int need = Math.min(
+                    com.partygameonline.game.nob.scoring.NobScoringService.moonPicksNeeded(this, playerId),
+                    options.size()
+            );
             moonTokenOffers.put(playerId, options);
+            moonPicksTaken.put(playerId, 0);
+            moonPickNeed.put(playerId, need);
         }
         Instant now = Instant.now();
         windowStartedAt = now;
@@ -325,6 +415,80 @@ public class NobGameState {
 
     public List<String> getWinnerPlayerIds() {
         return winnerPlayerIds;
+    }
+
+    public List<NobCompletedRound> getCompletedRounds() {
+        return List.copyOf(completedRounds);
+    }
+
+    public void recordCompletedRound(NobRoundResult roundResult, List<String> rewardedPlayerIds) {
+        if (roundResult == null) {
+            return;
+        }
+        Set<String> winners = rewardedPlayerIds == null
+                ? Set.of()
+                : new HashSet<>(rewardedPlayerIds);
+        List<NobRoundPlayerSnapshot> playerSnapshots = players.stream()
+                .map(player -> new NobRoundPlayerSnapshot(
+                        player.getPlayerId(),
+                        player.getCurrentBloodline() == null
+                                ? null
+                                : player.getCurrentBloodline().type().name(),
+                        winners.contains(player.getPlayerId()) ? "WIN" : "LOSS",
+                        player.score()
+                ))
+                .toList();
+        completedRounds.add(new NobCompletedRound(roundNumber, roundResult, playerSnapshots));
+    }
+
+    public Map<String, NobEloChange> getRoundEloChanges(int roundNumber) {
+        return Map.copyOf(roundEloChanges.getOrDefault(roundNumber, Map.of()));
+    }
+
+    public Map<String, NobEloChange> getFinalEloChanges() {
+        return Map.copyOf(finalEloChanges);
+    }
+
+    public Map<String, Integer> getEloSimulation() {
+        return Map.copyOf(eloSimulation);
+    }
+
+    public void recordRoundEloChanges(int roundNumber, Map<String, NobEloChange> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return;
+        }
+        Map<String, NobEloChange> copy = new LinkedHashMap<>(changes);
+        roundEloChanges.put(roundNumber, Map.copyOf(copy));
+        copy.forEach((playerId, change) -> eloSimulation.put(playerId, change.newElo()));
+        for (int i = 0; i < completedRounds.size(); i++) {
+            NobCompletedRound round = completedRounds.get(i);
+            if (round.roundNumber() != roundNumber) {
+                continue;
+            }
+            List<NobRoundPlayerSnapshot> snapshots = round.players().stream()
+                    .map(snapshot -> {
+                        NobEloChange change = copy.get(snapshot.playerId());
+                        return change == null
+                                ? snapshot
+                                : new NobRoundPlayerSnapshot(
+                                        snapshot.playerId(),
+                                        snapshot.bloodline(),
+                                        snapshot.result(),
+                                        snapshot.score(),
+                                        change.eloDelta()
+                                );
+                    })
+                    .toList();
+            completedRounds.set(i, new NobCompletedRound(round.roundNumber(), round.roundResult(), snapshots));
+            break;
+        }
+    }
+
+    public void recordFinalEloChanges(Map<String, NobEloChange> changes) {
+        finalEloChanges.clear();
+        if (changes != null) {
+            finalEloChanges.putAll(changes);
+        }
     }
 
     public List<NobPlayerState> getPlayers() {
@@ -383,7 +547,7 @@ public class NobGameState {
         return draftPicks;
     }
 
-    public Map<String, String> getPhaseSubmissions() {
+    public Map<String, List<String>> getPhaseSubmissions() {
         return phaseSubmissions;
     }
 
@@ -399,6 +563,13 @@ public class NobGameState {
         this.phaseDeadline = phaseDeadline;
     }
 
+    public void hurrySharedDeadline() {
+        Instant cap = Instant.now().plusSeconds(HURRY_UP_SECONDS);
+        if (phaseDeadline == null || phaseDeadline.isAfter(cap)) {
+            setPhaseDeadline(cap);
+        }
+    }
+
     public NobKillAttempt getActiveKill() {
         return activeKill;
     }
@@ -408,11 +579,22 @@ public class NobGameState {
     }
 
     public void log(String type, String text) {
-        log(type, text, null, null);
+        log(type, text, null, null, null, null);
     }
 
     public void log(String type, String text, String actorPlayerId, String targetPlayerId) {
-        publicLog.add(new NobPublicLogEntry(type, text, actorPlayerId, targetPlayerId));
+        log(type, text, actorPlayerId, targetPlayerId, null, null);
+    }
+
+    public void log(
+            String type,
+            String text,
+            String actorPlayerId,
+            String targetPlayerId,
+            String extraTargetPlayerId,
+            String cardCode
+    ) {
+        publicLog.add(new NobPublicLogEntry(type, text, actorPlayerId, targetPlayerId, extraTargetPlayerId, cardCode));
     }
 
     public static List<NobBloodline> bloodlinePool(int playerCount) {
@@ -444,9 +626,13 @@ public class NobGameState {
         }
     }
 
+    public int moonMarkPoolCount(int value) {
+        return (int) moonMarkPool.stream().filter(mark -> mark.value() == value).count();
+    }
+
     public NobMoonMark drawMoonMark(RandomSource random) {
         if (moonMarkPool.isEmpty()) {
-            return NobMoonMark.of(2);
+            return null;
         }
         int index = random.nextInt(moonMarkPool.size());
         return moonMarkPool.remove(index);
@@ -480,7 +666,7 @@ public class NobGameState {
         undealt.clear();
         undealt.addAll(deck);
         discardPile.clear();
-        echoHold.clear();
+        clearEchoShowcase();
         phase = NobPhase.DRAFT_PICK_1;
         phaseState = NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS;
         currentResolvingCard = null;
@@ -497,7 +683,7 @@ public class NobGameState {
         resolutionQueue.clear();
         pendingDecision = null;
         activeKill = null;
-        echoHold.clear();
+        clearEchoShowcase();
         currentResolvingCard = null;
         currentActorPlayerId = null;
         Instant now = Instant.now();
@@ -514,8 +700,9 @@ public class NobGameState {
 
     public void closePhaseSubmissions() {
         List<NobResolutionItem> items = new ArrayList<>();
-        for (Map.Entry<String, String> entry : phaseSubmissions.entrySet()) {
-            if ("PASS".equals(entry.getValue())) {
+        for (Map.Entry<String, List<String>> entry : phaseSubmissions.entrySet()) {
+            List<String> submitted = entry.getValue() == null ? List.of() : entry.getValue();
+            if (submitted.stream().anyMatch(value -> "PASS".equalsIgnoreCase(value))) {
                 NobPlayerState player = requirePlayer(entry.getKey());
                 player.getHand().stream()
                         .filter(card -> card.matchesPhase(phase))
@@ -523,9 +710,11 @@ public class NobGameState {
                 continue;
             }
             NobPlayerState player = requirePlayer(entry.getKey());
-            NobCardInstance card = player.findHand(entry.getValue());
-            if (card != null) {
-                items.add(new NobResolutionItem(player.getPlayerId(), card));
+            for (String cardId : submitted) {
+                NobCardInstance card = player.findHand(cardId);
+                if (card != null && card.matchesPhase(phase)) {
+                    items.add(new NobResolutionItem(player.getPlayerId(), card));
+                }
             }
         }
         items.sort(Comparator
@@ -552,11 +741,22 @@ public class NobGameState {
         owner.getHand().removeIf(item -> item.instanceId().equals(card.instanceId()));
         owner.getRevealedCards().add(card);
         owner.getUsedCards().add(card);
-        log("NOB_ROLE_REVEALED", owner.getDisplayName() + " revealed " + card.cardCode());
+        log(
+                "NOB_ROLE_REVEALED",
+                owner.getDisplayName() + " revealed " + card.cardCode(),
+                owner.getPlayerId(),
+                null,
+                null,
+                card.cardCode()
+        );
     }
 
     public void awardMoonMark(NobPlayerState player, RandomSource random) {
         NobMoonMark mark = drawMoonMark(random);
+        if (mark == null) {
+            log("NOB_MOON_MARK_POOL_EMPTY", "Moon Mark pool is empty");
+            return;
+        }
         player.getMoonMarks().add(mark);
         log("NOB_MOON_MARK_COUNT_CHANGED", player.getDisplayName() + " now has " + player.moonMarkCount() + " Moon Marks");
     }
@@ -586,8 +786,15 @@ public class NobGameState {
         resolutionDisplayExpiresAt = null;
         presentationQueue.clear();
         roundRewardPlayerIds.clear();
+        for (List<NobMoonTokenOption> leftover : moonTokenOffers.values()) {
+            for (NobMoonTokenOption option : leftover) {
+                moonMarkPool.add(option.mark());
+            }
+        }
         moonTokenOffers.clear();
         moonTokenClaimed.clear();
+        moonPickNeed.clear();
+        moonPicksTaken.clear();
         assignBloodlines(random);
         dealDraft(random);
         log("NOB_ROUND_STARTED", "Round " + roundNumber + " started");

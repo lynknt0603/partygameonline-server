@@ -1,6 +1,7 @@
 package com.partygameonline.history.api;
 
 import com.partygameonline.history.api.dto.MatchResponse;
+import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
 import com.partygameonline.history.api.dto.PageResponse;
 import com.partygameonline.history.application.MatchHistoryService;
 import com.partygameonline.session.domain.PlayerPrincipal;
@@ -29,6 +30,16 @@ public class MatchHistoryController {
             @RequestParam(required = false) Integer size
     ) {
         return matchHistoryService.listForPlayer(principal.playerId(), page, size);
+    }
+
+    @GetMapping("/history")
+    public PageResponse<MatchHistoryItemResponse> history(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) String gameId
+    ) {
+        return matchHistoryService.listHistoryForPlayer(principal.playerId(), page, size, gameId);
     }
 
     @GetMapping("/{matchId}")

@@ -3,7 +3,7 @@ package com.partygameonline;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.partygameonline.game.core.GameRegistry;
-import com.partygameonline.game.games.demo.DemoCardGameManifest;
+import com.partygameonline.game.nob.NobGameManifest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,8 +21,8 @@ class PartyGameOnlineApplicationTests {
     }
 
     @Test
-    void demoCardGameEngineIsRegisteredWithoutSwitch() {
-        assertThat(gameRegistry.hasEngine(DemoCardGameManifest.ID)).isTrue();
-        assertThat(gameRegistry.hasEngine("night-of-bloodlines")).isTrue();
+    void nightOfBloodlinesEngineIsRegisteredWithoutSwitch() {
+        assertThat(gameRegistry.hasEngine(NobGameManifest.ID)).isTrue();
+        assertThat(gameRegistry.findProjector(NobGameManifest.ID)).isPresent();
     }
 }

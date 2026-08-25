@@ -60,7 +60,8 @@ class RoomWebSocketHandlerTests {
                 new InMemoryRoomRepository(),
                 runtime,
                 publisher,
-                org.mockito.Mockito.mock(com.partygameonline.history.application.MatchHistoryService.class)
+                org.mockito.Mockito.mock(com.partygameonline.history.application.MatchHistoryService.class),
+                roomService
         );
         lenient().when(roomService.socketReconnected(any())).thenReturn(Optional.empty());
         DisconnectGraceService grace = new DisconnectGraceService(
@@ -68,7 +69,8 @@ class RoomWebSocketHandlerTests {
                 new RealtimeProperties(Duration.ofSeconds(30)),
                 roomService
         );
-        handler = new RoomWebSocketHandler(hub, publisher, roomService, dispatcher, runtime, grace, deduper, jsonMapper);
+        handler = new RoomWebSocketHandler(
+                hub, publisher, roomService, dispatcher, runtime, grace, deduper, new RoomChatService(), jsonMapper);
         attributes = new ConcurrentHashMap<>();
         attributes.put(WebSocketConnectionHub.PLAYER_ATTRIBUTE, PlayerPrincipal.guest("p1", "Linh"));
         when(session.getAttributes()).thenReturn(attributes);
@@ -100,7 +102,7 @@ class RoomWebSocketHandlerTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Lobby"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "p1",
                 "Linh",
                 2,
@@ -126,7 +128,7 @@ class RoomWebSocketHandlerTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Lobby"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "p1",
                 "Linh",
                 2,
@@ -149,6 +151,31 @@ class RoomWebSocketHandlerTests {
                 .reduce("", (left, right) -> left + right);
         assertThat(all).contains("RESYNC_REQUIRED");
         assertThat(all).contains("ROOM_SNAPSHOT");
+    }
+
+    @Test
+    void roomChatBroadcastsToMembers() throws Exception {
+        GameRoom room = new GameRoom(
+                RoomId.parse("ABCD"),
+                new RoomName("Lobby"),
+                "night-of-bloodlines",
+                "p1",
+                "Linh",
+                2,
+                RoomVisibility.PUBLIC,
+                Instant.parse("2026-08-19T00:00:00Z")
+        );
+        when(roomService.get("ABCD")).thenReturn(room);
+
+        handler.handleTextMessage(session, new TextMessage("""
+                {"version":1,"type":"ROOM_CHAT","requestId":"chat-1","roomId":"ABCD","payload":{"text":"hello table"}}
+                """));
+
+        String payload = lastPayload();
+        assertThat(payload).contains("\"type\":\"ROOM_CHAT\"");
+        assertThat(payload).contains("hello table");
+        assertThat(payload).contains("\"playerId\":\"p1\"");
+        assertThat(payload).doesNotContain("spoof");
     }
 
     @Test

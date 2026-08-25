@@ -21,11 +21,9 @@ Rejected gameplay uses server type `ACTION_REJECTED`. Both carry:
 | `DUPLICATE_REQUEST` | ACTION_REJECTED | Same player reused `requestId` |
 | `GAME_NOT_RUNNING` | ACTION_REJECTED | No live session (or already finished) |
 | `MALFORMED_ACTION` | ACTION_REJECTED | Engine could not decode `payload` |
-| `NOT_YOUR_TURN` | ACTION_REJECTED | Demo: not current player |
-| `ALREADY_DRAWN` | ACTION_REJECTED | Demo: second `DRAW_CARD` this turn |
-| `DECK_EMPTY` | ACTION_REJECTED | Demo: draw from empty deck |
-| `CARD_NOT_IN_HAND` | ACTION_REJECTED | Demo: card missing or opponent's |
-| `GAME_ALREADY_FINISHED` | ACTION_REJECTED | Demo: action after winner |
+| `NOT_YOUR_TURN` | ACTION_REJECTED | Action is not allowed for the actor in the current phase or decision |
+| `CARD_NOT_IN_HAND` | ACTION_REJECTED | Selected card is not owned by the actor |
+| `GAME_ALREADY_FINISHED` | ACTION_REJECTED | Action was sent after the match finished |
 | `NOT_IN_GAME` | ACTION_REJECTED | Actor is not a seated player |
 
 Do not send `playerId`, damage, winner, or a new hand from the client. The server ignores identity in the payload.

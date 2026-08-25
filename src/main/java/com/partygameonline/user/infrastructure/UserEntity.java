@@ -18,25 +18,45 @@ public class UserEntity {
     @Column(name = "display_name", nullable = false, length = 32)
     private String displayName;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(length = 32, unique = true)
+    private String username;
+
+    @Column(name = "password_aes", length = 512)
+    private String passwordAes;
+
+    @Column(name = "user_key", nullable = false, length = 64, unique = true)
+    private String userKey;
+
+    @Column(name = "created_date", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "update_date", nullable = false)
     private Instant updatedAt;
 
     protected UserEntity() {
     }
 
-    public UserEntity(UUID id, String displayName, Instant createdAt, Instant updatedAt) {
+    public UserEntity(UUID id, String displayName, String username, String passwordAes,
+                      String userKey, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.displayName = displayName;
+        this.username = username;
+        this.passwordAes = passwordAes;
+        this.userKey = userKey;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
     public static UserEntity newUser(String displayName) {
         Instant now = Instant.now();
-        return new UserEntity(UUID.randomUUID(), displayName, now, now);
+        UUID id = UUID.randomUUID();
+        return new UserEntity(id, displayName, null, null, id.toString(), now, now);
+    }
+
+    public static UserEntity newMember(String username, String passwordAes) {
+        Instant now = Instant.now();
+        UUID id = UUID.randomUUID();
+        return new UserEntity(id, username, username, passwordAes, UUID.randomUUID().toString(), now, now);
     }
 
     public void rename(String displayName) {
@@ -58,5 +78,17 @@ public class UserEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPasswordAes() {
+        return passwordAes;
+    }
+
+    public String getUserKey() {
+        return userKey;
     }
 }

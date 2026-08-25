@@ -13,6 +13,7 @@ public record NobPendingDecisionView(
         List<String> allowedTargetIds,
         String sourceCardInstanceId,
         Instant startedAt,
-        Instant expiresAt
+        Instant expiresAt,
+        List<Integer> optionValues
 ) {
 }

@@ -20,12 +20,12 @@ com.partygameonline
 ├── game/
 │   ├── core/        GameManifest, GameEngine, GameRegistry, RandomSource, projector
 │   ├── runtime/     GameRuntimeService, sessions, GameActionDispatcher
-│   └── games/       demo engine + projector; bloodlines manifest only
+│   └── nob/          Night of Bloodlines engine + projector
 ├── history/         GET /api/v1/matches + persistence
 └── PartyGameOnlineApplication.java
 ```
 
-`POST /rooms/{id}/start` creates an in-memory `GameSession` when a `GameEngine` is registered. `demo-card-game` now has an engine, so start goes to `IN_GAME`.
+`POST /rooms/{id}/start` creates an in-memory `GameSession` when a `GameEngine` is registered. Night of Bloodlines has an engine, so a valid start goes to `IN_GAME`.
 See `docs/GAME-ENGINE.md`.
 
 ## HTTP
@@ -46,7 +46,7 @@ See `docs/GAME-ENGINE.md`.
 ## Persistence
 
 - Active rooms: in-memory `RoomRepository` (not PostgreSQL)
-- Live game state: in-memory `GameSession` (`demo-card-game` engine).
+- Live game state: in-memory `GameSession` (Night of Bloodlines engine).
 - Users + completed matches: PostgreSQL + Flyway
 - Schema details: `docs/DATABASE.md`
 - Hibernate `ddl-auto=validate`. No auto schema mutation.

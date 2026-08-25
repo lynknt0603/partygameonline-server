@@ -33,6 +33,15 @@ public class MatchPlayerEntity {
     @Column(length = 16)
     private String result;
 
+    @Column(name = "score")
+    private Integer score;
+
+    @Column(name = "role", length = 64)
+    private String role;
+
+    @Column(name = "bloodline", length = 32)
+    private String bloodline;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -48,7 +57,7 @@ public class MatchPlayerEntity {
             Short seat,
             Instant createdAt
     ) {
-        this(id, matchId, userId, playerId, displayName, seat, null, createdAt);
+        this(id, matchId, userId, playerId, displayName, seat, null, null, null, null, createdAt);
     }
 
     public MatchPlayerEntity(
@@ -59,6 +68,9 @@ public class MatchPlayerEntity {
             String displayName,
             Short seat,
             String result,
+            Integer score,
+            String role,
+            String bloodline,
             Instant createdAt
     ) {
         this.id = id;
@@ -68,6 +80,9 @@ public class MatchPlayerEntity {
         this.displayName = displayName;
         this.seat = seat;
         this.result = result;
+        this.score = score;
+        this.role = role;
+        this.bloodline = bloodline;
         this.createdAt = createdAt;
     }
 
@@ -97,6 +112,35 @@ public class MatchPlayerEntity {
                 displayName,
                 seat == null ? null : seat.shortValue(),
                 result,
+                null,
+                null,
+                null,
+                Instant.now()
+        );
+    }
+
+    public static MatchPlayerEntity newPlayer(
+            UUID matchId,
+            UUID userId,
+            String playerId,
+            String displayName,
+            Integer seat,
+            String result,
+            Integer score,
+            String role,
+            String bloodline
+    ) {
+        return new MatchPlayerEntity(
+                UUID.randomUUID(),
+                matchId,
+                userId,
+                playerId,
+                displayName,
+                seat == null ? null : seat.shortValue(),
+                result,
+                score,
+                role,
+                bloodline,
                 Instant.now()
         );
     }
@@ -127,6 +171,18 @@ public class MatchPlayerEntity {
 
     public String getResult() {
         return result;
+    }
+
+    public Integer getScore() {
+        return score;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public String getBloodline() {
+        return bloodline;
     }
 
     public Instant getCreatedAt() {

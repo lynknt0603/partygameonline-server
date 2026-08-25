@@ -4,6 +4,8 @@ public record NobPublicLogView(
         String type,
         String text,
         String actorPlayerId,
-        String targetPlayerId
+        String targetPlayerId,
+        String extraTargetPlayerId,
+        String cardCode
 ) {
 }

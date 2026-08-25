@@ -17,6 +17,8 @@ import com.partygameonline.game.nob.domain.NobAnnouncement;
 import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
 import com.partygameonline.game.nob.domain.NobCardInstance;
+import com.partygameonline.game.nob.domain.NobDecisionType;
+import com.partygameonline.game.nob.domain.NobEloChange;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobInspectReveal;
 import com.partygameonline.game.nob.domain.NobMoonMark;
@@ -45,6 +47,14 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         NobPlayerState self = state.player(you);
         boolean inGame = self != null && viewer.kind() == ViewerKind.PLAYER;
         List<NobPublicPlayerView> players = new ArrayList<>();
+        boolean showRoundElo = state.getPhase() == NobPhase.ROUND_SUMMARY || state.getPhase() == NobPhase.GAME_OVER;
+        int lastRoundNumber = state.getCompletedRounds().isEmpty()
+                ? -1
+                : state.getCompletedRounds().getLast().roundNumber();
+        java.util.Map<String, NobEloChange> roundElo = showRoundElo
+                ? state.getRoundEloChanges(lastRoundNumber)
+                : java.util.Map.of();
+        java.util.Map<String, NobEloChange> finalElo = state.getFinalEloChanges();
         for (NobPlayerState player : state.getPlayers()) {
             boolean revealBloodline = player.getKnowledgeState() == NobBloodlineKnowledge.PUBLICLY_REVEALED
                     || state.getPhase() == NobPhase.BLOODLINE_REVEAL
@@ -52,6 +62,9 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                     || state.getPhase() == NobPhase.ROUND_SUMMARY
                     || state.getPhase() == NobPhase.GAME_OVER;
             Integer score = state.isFinished() ? player.score() : null;
+            NobEloChange eloChange = state.isFinished()
+                    ? finalElo.get(player.getPlayerId())
+                    : roundElo.get(player.getPlayerId());
             players.add(new NobPublicPlayerView(
                     player.getPlayerId(),
                     player.getDisplayName(),
@@ -63,7 +76,10 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                     score,
                     revealBloodline ? bloodlineView(player.getCurrentBloodline()) : null,
                     player.getRevealedCards().stream().map(NobGameProjector::cardView).toList(),
-                    player.getHand().size()
+                    player.getHand().size(),
+                    eloChange == null ? null : eloChange.oldElo(),
+                    eloChange == null ? null : eloChange.eloDelta(),
+                    eloChange == null ? null : eloChange.newElo()
             ));
         }
         List<NobCardView> myHand = inGame ? self.getHand().stream().map(NobGameProjector::cardView).toList() : List.of();
@@ -103,9 +119,21 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
             }
         }
         List<NobCardView> echoCards = List.of();
-        if (inGame && pendingView != null && "ECHO_CHOOSE".equals(pendingView.type())) {
-            echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+        int echoCardCount = state.getEchoCardCount();
+        if (!state.getEchoHold().isEmpty()) {
+            echoCardCount = state.getEchoHold().size();
+            boolean echoActor = inGame
+                    && state.getPendingDecision() != null
+                    && state.getPendingDecision().type() == NobDecisionType.ECHO_CHOOSE
+                    && you.equals(state.getPendingDecision().actorId());
+            if (echoActor) {
+                echoCards = state.getEchoHold().stream().map(NobGameProjector::cardView).toList();
+            }
+        } else if (state.getEchoPicked() != null) {
+            echoCards = List.of(cardView(state.getEchoPicked()));
+            echoCardCount = Math.max(echoCardCount, 1);
         }
+        NobCardView echoSourceCard = state.getEchoSource() == null ? null : cardView(state.getEchoSource());
         List<NobCardView> resolving = state.getResolutionQueue().stream()
                 .map(NobResolutionItem::card)
                 .map(NobGameProjector::cardView)
@@ -115,7 +143,9 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                         entry.type(),
                         entry.text(),
                         entry.actorPlayerId(),
-                        entry.targetPlayerId()
+                        entry.targetPlayerId(),
+                        entry.extraTargetPlayerId(),
+                        entry.cardCode()
                 ))
                 .toList();
         Instant serverTime = Instant.now();
@@ -151,6 +181,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 pendingView,
                 draftHand,
                 echoCards,
+                echoCardCount,
+                echoSourceCard,
                 log,
                 resolving,
                 state.getCurrentResolvingCard() == null ? null : cardView(state.getCurrentResolvingCard()),
@@ -219,7 +251,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 List.of(),
                 null,
                 state.getWindowStartedAt(),
-                state.getPhaseDeadline()
+                state.getPhaseDeadline(),
+                null
         );
     }
 
@@ -227,6 +260,12 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         Object target = pending.context() == null ? null : pending.context().get("targetId");
         if (target == null && pending.context() != null && pending.context().get("a") != null) {
             target = pending.context().get("a");
+        }
+        List<Integer> optionValues = null;
+        if (pending.context() != null && "STEAL".equals(pending.context().get("mode"))) {
+            // Keep the steal choices face-down. The selected Moon Mark value is
+            // revealed naturally after it is transferred to the actor.
+            optionValues = pending.allowedOptions().stream().map(id -> (Integer) null).toList();
         }
         return new NobPendingDecisionView(
                 pending.decisionId(),
@@ -238,7 +277,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 pending.allowedTargetIds(),
                 pending.sourceCardInstanceId(),
                 pending.startedAt(),
-                pending.expiresAt()
+                pending.expiresAt(),
+                optionValues
         );
     }
 

@@ -52,6 +52,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/games", "/api/v1/games/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/session/guest").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers("/__test/**").permitAll()
                         .anyRequest().authenticated()
                 );

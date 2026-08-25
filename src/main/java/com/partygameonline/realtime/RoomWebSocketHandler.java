@@ -31,6 +31,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
     private final GameRuntimeService gameRuntimeService;
     private final DisconnectGraceService disconnectGraceService;
     private final RequestIdDeduper requestIdDeduper;
+    private final RoomChatService roomChatService;
     private final JsonMapper jsonMapper;
 
     public RoomWebSocketHandler(
@@ -41,6 +42,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
             GameRuntimeService gameRuntimeService,
             DisconnectGraceService disconnectGraceService,
             RequestIdDeduper requestIdDeduper,
+            RoomChatService roomChatService,
             JsonMapper jsonMapper
     ) {
         this.hub = hub;
@@ -50,6 +52,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         this.gameRuntimeService = gameRuntimeService;
         this.disconnectGraceService = disconnectGraceService;
         this.requestIdDeduper = requestIdDeduper;
+        this.roomChatService = roomChatService;
         this.jsonMapper = jsonMapper;
     }
 
@@ -89,6 +92,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         }
         switch (envelope.type()) {
             case WsMessageTypes.ROOM_SNAPSHOT -> handleRoomSnapshot(session, player, envelope);
+            case WsMessageTypes.ROOM_CHAT -> handleRoomChat(session, player, envelope);
             case WsMessageTypes.GAME_ACTION -> handleGameAction(session, player, envelope);
             default -> sendError(
                     session,
@@ -141,10 +145,41 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         }
         GameSession gameSession = gameRuntimeService.findSession(room.getId().value()).orElse(null);
         Object view = gameSession == null ? null : gameRuntimeService.projectView(gameSession, viewer);
-        publisher.snapshot(room, requestId, player.playerId(), view);
+        publisher.snapshot(room, requestId, player.playerId(), view, roomChatService.recent(room.getId().value()));
         if (gameSession != null) {
             publisher.gameSnapshot(room, requestId, player.playerId(), view);
         }
+    }
+
+    private void handleRoomChat(WebSocketSession session, PlayerPrincipal player, WsClientEnvelope envelope) {
+        if (envelope.roomId() == null || envelope.roomId().isBlank()) {
+            sendError(session, null, envelope.requestId(), "ROOM_REQUIRED", "roomId is required");
+            return;
+        }
+        GameRoom room;
+        try {
+            room = roomService.get(envelope.roomId());
+        } catch (RoomException ex) {
+            sendError(session, envelope.roomId(), envelope.requestId(), ex.getErrorCode(), ex.getClientMessage());
+            return;
+        }
+        if (room.findPlayer(player.playerId()).isEmpty()) {
+            sendError(session, envelope.roomId(), envelope.requestId(), "NOT_ROOM_MEMBER", "You are not a member of this room");
+            return;
+        }
+        Object raw = envelope.payload() == null ? null : envelope.payload().get("text");
+        String text = raw == null ? "" : String.valueOf(raw);
+        RoomChatMessage message = roomChatService.append(
+                room.getId().value(),
+                player.playerId(),
+                player.displayName(),
+                text
+        );
+        if (message == null) {
+            sendError(session, envelope.roomId(), envelope.requestId(), "INVALID_CHAT", "Message is empty");
+            return;
+        }
+        publisher.roomChat(room, envelope.requestId(), message);
     }
 
     private void releaseSocket(WebSocketSession session) {

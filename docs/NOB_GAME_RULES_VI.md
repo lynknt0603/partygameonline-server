@@ -222,7 +222,7 @@ Card được lấy lại có thể được dùng ngoài phase thông thường
 
 1. Công khai Bloodline hiện tại của chính mình.
 2. Chọn 1 người có **nhiều Moon Mark token hơn mình về số lượng**.
-3. Server chuyển ngẫu nhiên 1 Moon Mark đang ẩn từ target sang actor.
+3. Nếu target có 1 Moon Mark thì chuyển trực tiếp. Nếu target có từ 2 Moon Mark trở lên, actor được chọn 1 trong toàn bộ các Moon Mark đang úp của target (2/3/4... lá tùy số lượng). Chỉ Moon Mark đã chọn mới được chuyển sang actor và lộ giá trị sau khi chuyển.
 4. Không kiểm tra thắng game ngay; Victory Check vẫn chỉ diễn ra cuối vòng.
 
 ---

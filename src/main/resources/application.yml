@@ -42,9 +42,9 @@ games:
     target-score: 10
     timeout-scheduler-enabled: true
     moon-marks:
-      value-2-count: 15
-      value-3-count: 12
-      value-4-count: 8
+      value-2-count: 10
+      value-3-count: 15
+      value-4-count: 10
     timeout:
       draft-seconds: 30
       phase-submit-seconds: 30
@@ -52,6 +52,8 @@ games:
       reaction-seconds: 10
 
 app:
+  encryption:
+    key: ${APP_ENCRYPTION_KEY:DEV_AES_KEY}
   security:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
@@ -82,7 +84,7 @@ management:
 info:
   app:
     name: partygameonline-server
-    phase: BE-12
+    phase: release
 
 logging:
   pattern:

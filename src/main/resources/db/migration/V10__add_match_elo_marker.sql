@@ -1,0 +1,2 @@
+ALTER TABLE matches
+    ADD COLUMN elo_processed BOOLEAN NOT NULL DEFAULT FALSE;
