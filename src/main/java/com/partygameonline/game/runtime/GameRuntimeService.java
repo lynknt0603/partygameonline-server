@@ -150,7 +150,8 @@ public class GameRuntimeService {
             List<EloRatingService.PlayerOutcome> outcomes = round.players().stream()
                     .map(player -> new EloRatingService.PlayerOutcome(
                             player.playerId(),
-                            "WIN".equalsIgnoreCase(player.result())
+                            "WIN".equalsIgnoreCase(player.result()),
+                            player.score()
                     ))
                     .toList();
             EloRatingService.EloMatchResult result = eloRatingService.previewRound(

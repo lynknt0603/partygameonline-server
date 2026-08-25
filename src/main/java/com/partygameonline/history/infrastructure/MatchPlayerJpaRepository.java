@@ -9,4 +9,6 @@ public interface MatchPlayerJpaRepository extends JpaRepository<MatchPlayerEntit
     List<MatchPlayerEntity> findByMatchIdOrderBySeatAscIdAsc(UUID matchId);
 
     List<MatchPlayerEntity> findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(Iterable<UUID> matchIds);
+
+    List<MatchPlayerEntity> findByPlayerIdInOrderByCreatedAtDescIdAsc(Iterable<String> playerIds);
 }

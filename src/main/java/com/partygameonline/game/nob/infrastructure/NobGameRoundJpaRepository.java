@@ -10,4 +10,6 @@ public interface NobGameRoundJpaRepository extends JpaRepository<NobGameRoundEnt
             Iterable<UUID> gameIds,
             String playerId
     );
+
+    List<NobGameRoundEntity> findByPlayerIdInOrderByCreatedAtDescIdAsc(Iterable<String> playerIds);
 }

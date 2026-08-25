@@ -77,7 +77,90 @@ class EloRatingServiceTests {
     }
 
     @Test
-    void finalWinnerReceivesTheAccumulatedLossesWithoutSplittingTheBonus() {
+    void rankedRoundRewardsEveryPlacementAndStaysZeroSum() {
+        mockDefaultRatings("A", "B", "C", "D");
+
+        EloRatingService.EloMatchResult result = service.previewRound(
+                "night-of-bloodlines",
+                List.of(
+                        new EloRatingService.PlayerOutcome("A", true, 12),
+                        new EloRatingService.PlayerOutcome("B", false, 9),
+                        new EloRatingService.PlayerOutcome("C", false, 5),
+                        new EloRatingService.PlayerOutcome("D", false, 2)
+                ),
+                Map.of()
+        );
+
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(51);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(17);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-51);
+        assertThat(result.changes().values().stream().mapToInt(EloRatingService.EloChange::eloDelta).sum()).isZero();
+    }
+
+    @Test
+    void tiedPlacementsReceiveTheSameDelta() {
+        mockDefaultRatings("A", "B", "C", "D");
+
+        EloRatingService.EloMatchResult result = service.previewRound(
+                "night-of-bloodlines",
+                List.of(
+                        new EloRatingService.PlayerOutcome("A", true, 12),
+                        new EloRatingService.PlayerOutcome("B", false, 8),
+                        new EloRatingService.PlayerOutcome("C", false, 8),
+                        new EloRatingService.PlayerOutcome("D", false, 3)
+                ),
+                Map.of()
+        );
+
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(51);
+        assertThat(result.changes().get("B").eloDelta()).isZero();
+        assertThat(result.changes().get("C").eloDelta()).isZero();
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-51);
+    }
+
+    @Test
+    void everyoneKeepsTheirEloWhenAllMoonMarkScoresAreEqual() {
+        mockDefaultRatings("A", "B", "C", "D");
+
+        EloRatingService.EloMatchResult result = service.previewRound(
+                "night-of-bloodlines",
+                List.of(
+                        new EloRatingService.PlayerOutcome("A", true, 10),
+                        new EloRatingService.PlayerOutcome("B", true, 10),
+                        new EloRatingService.PlayerOutcome("C", true, 10),
+                        new EloRatingService.PlayerOutcome("D", true, 10)
+                ),
+                Map.of()
+        );
+
+        assertThat(result.changes().values()).allMatch(change -> change.eloDelta() == 0);
+        assertThat(result.changes().values()).allMatch(change -> change.newElo() == 5000);
+    }
+
+    @Test
+    void rankedRoundCannotCreateEloWhenLastPlaceHasNoEloToLose() {
+        when(repository.findByUserIdAndGameCode("A", "night-of-bloodlines"))
+                .thenReturn(Optional.of(UserGameStatisticEntity.newStatistic("A", "night-of-bloodlines")));
+        UserGameStatisticEntity empty = UserGameStatisticEntity.newStatistic("B", "night-of-bloodlines");
+        empty.applyRatingDelta(-5000);
+        when(repository.findByUserIdAndGameCode("B", "night-of-bloodlines")).thenReturn(Optional.of(empty));
+
+        EloRatingService.EloMatchResult result = service.previewRound(
+                "night-of-bloodlines",
+                List.of(
+                        new EloRatingService.PlayerOutcome("A", true, 10),
+                        new EloRatingService.PlayerOutcome("B", false, 1)
+                ),
+                Map.of()
+        );
+
+        assertThat(result.changes().get("A").eloDelta()).isZero();
+        assertThat(result.changes().get("B").eloDelta()).isZero();
+    }
+
+    @Test
+    void finalRatingsCommitTheAccumulatedRankedRoundDeltasWithoutWinnerInflation() {
         UserGameStatisticEntity winner = UserGameStatisticEntity.newStatistic("A", "night-of-bloodlines");
         UserGameStatisticEntity loser = UserGameStatisticEntity.newStatistic("B", "night-of-bloodlines");
         when(serviceRepository().findByUserIdAndGameCodeForUpdate("A", "night-of-bloodlines"))
@@ -100,11 +183,19 @@ class EloRatingServiceTests {
                 state
         );
 
-        assertThat(winner.getElo()).isEqualTo(5100);
+        assertThat(winner.getElo()).isEqualTo(5050);
         assertThat(loser.getElo()).isEqualTo(4950);
         assertThat(winner.getTotalMatch()).isEqualTo(1);
         assertThat(winner.getTotalWin()).isEqualTo(1);
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(100);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
+    }
+
+    private void mockDefaultRatings(String... playerIds) {
+        for (String playerId : playerIds) {
+            when(repository.findByUserIdAndGameCode(playerId, "night-of-bloodlines"))
+                    .thenReturn(Optional.of(UserGameStatisticEntity.newStatistic(playerId, "night-of-bloodlines")));
+        }
     }
 
     private UserGameStatisticJpaRepository serviceRepository() {

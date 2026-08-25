@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,5 +62,25 @@ class ProfileStatsControllerTests {
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content.length()").value(0))
                 .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void memberProfileCanBeViewedByUsername() throws Exception {
+        String username = "profileviewer" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.displayName").value(username))
+                .andExpect(jsonPath("$.player.role").value("Member"))
+                .andExpect(jsonPath("$.nobStats.totalMatches").value(0))
+                .andExpect(jsonPath("$.nobStats.winRate").value(0.0));
     }
 }

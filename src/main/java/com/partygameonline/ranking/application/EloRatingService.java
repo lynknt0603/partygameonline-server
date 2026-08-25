@@ -84,6 +84,9 @@ public class EloRatingService {
             ratings.put(outcome.playerId(), Math.max(MIN_ELO, rating));
         }
         double roomAverage = ratings.values().stream().mapToInt(Integer::intValue).average().orElse(DEFAULT_ELO);
+        if (distinct.size() > 1 && distinct.stream().allMatch(outcome -> outcome.score() != null)) {
+            return previewRankedRound(distinct, ratings, roomAverage);
+        }
         Map<String, EloChange> changes = new LinkedHashMap<>();
         for (PlayerOutcome outcome : distinct) {
             int oldElo = ratings.get(outcome.playerId());
@@ -98,6 +101,101 @@ public class EloRatingService {
             ));
         }
         return new EloMatchResult(changes, roomAverage);
+    }
+
+    private EloMatchResult previewRankedRound(
+            List<PlayerOutcome> outcomes,
+            Map<String, Integer> ratings,
+            double roomAverage
+    ) {
+        int opponentCount = outcomes.size() - 1;
+        Map<String, Integer> rawDeltas = new LinkedHashMap<>();
+        outcomes.forEach(outcome -> rawDeltas.put(outcome.playerId(), 0));
+
+        for (int leftIndex = 0; leftIndex < outcomes.size(); leftIndex++) {
+            PlayerOutcome left = outcomes.get(leftIndex);
+            for (int rightIndex = leftIndex + 1; rightIndex < outcomes.size(); rightIndex++) {
+                PlayerOutcome right = outcomes.get(rightIndex);
+                if (left.score().equals(right.score())) {
+                    continue;
+                }
+                PlayerOutcome higherScore = left.score() > right.score() ? left : right;
+                PlayerOutcome lowerScore = higherScore == left ? right : left;
+                int higherRating = ratings.get(higherScore.playerId());
+                int lowerRating = ratings.get(lowerScore.playerId());
+                double pairAverage = (higherRating + lowerRating) / 2.0;
+                int pairTransfer = Math.max(
+                        1,
+                        (int) Math.round(calculateEloDelta(higherRating, pairAverage, true) / (double) opponentCount)
+                );
+                rawDeltas.compute(higherScore.playerId(), (ignored, delta) -> delta + pairTransfer);
+                rawDeltas.compute(lowerScore.playerId(), (ignored, delta) -> delta - pairTransfer);
+            }
+        }
+
+        Map<String, Integer> balancedDeltas = capLossesAndBalance(rawDeltas, ratings, outcomes);
+        Map<String, EloChange> changes = new LinkedHashMap<>();
+        for (PlayerOutcome outcome : outcomes) {
+            int oldElo = ratings.get(outcome.playerId());
+            int delta = balancedDeltas.getOrDefault(outcome.playerId(), 0);
+            changes.put(outcome.playerId(), new EloChange(
+                    outcome.playerId(),
+                    outcome.winner(),
+                    oldElo,
+                    delta,
+                    oldElo + delta
+            ));
+        }
+        return new EloMatchResult(changes, roomAverage);
+    }
+
+    private static Map<String, Integer> capLossesAndBalance(
+            Map<String, Integer> rawDeltas,
+            Map<String, Integer> ratings,
+            List<PlayerOutcome> outcomes
+    ) {
+        Map<String, Integer> balanced = new LinkedHashMap<>();
+        int availableLossPool = 0;
+        int requestedGainPool = 0;
+        for (PlayerOutcome outcome : outcomes) {
+            String playerId = outcome.playerId();
+            int rawDelta = rawDeltas.getOrDefault(playerId, 0);
+            if (rawDelta < 0) {
+                int cappedDelta = Math.max(rawDelta, -ratings.get(playerId));
+                balanced.put(playerId, cappedDelta);
+                availableLossPool -= cappedDelta;
+            } else {
+                balanced.put(playerId, 0);
+                requestedGainPool += rawDelta;
+            }
+        }
+        if (requestedGainPool == 0 || availableLossPool == 0) {
+            return balanced;
+        }
+
+        int assigned = 0;
+        List<GainShare> shares = new ArrayList<>();
+        for (int index = 0; index < outcomes.size(); index++) {
+            String playerId = outcomes.get(index).playerId();
+            int requestedGain = Math.max(0, rawDeltas.getOrDefault(playerId, 0));
+            if (requestedGain == 0) {
+                continue;
+            }
+            double exactShare = requestedGain * (double) availableLossPool / requestedGainPool;
+            int baseShare = (int) Math.floor(exactShare);
+            balanced.put(playerId, baseShare);
+            assigned += baseShare;
+            shares.add(new GainShare(playerId, exactShare - baseShare, index));
+        }
+        shares.sort((left, right) -> {
+            int byRemainder = Double.compare(right.remainder(), left.remainder());
+            return byRemainder != 0 ? byRemainder : Integer.compare(left.order(), right.order());
+        });
+        for (int index = 0; index < availableLossPool - assigned; index++) {
+            String playerId = shares.get(index).playerId();
+            balanced.compute(playerId, (ignored, delta) -> delta + 1);
+        }
+        return balanced;
     }
 
     /**
@@ -133,11 +231,6 @@ public class EloRatingService {
                     firstRoundElo.putIfAbsent(playerId, change.oldElo())
             );
         }
-        int loserLossTotal = state.getCompletedRounds().stream()
-                .flatMap(round -> round.players().stream())
-                .filter(snapshot -> !winnerIds.contains(snapshot.playerId()))
-                .mapToInt(snapshot -> Math.max(0, -nullToZero(snapshot.eloDelta())))
-                .sum();
         Map<String, Integer> targetRatings = new LinkedHashMap<>();
         for (String playerId : distinctPlayerIds) {
             int target = stats.get(playerId).getElo();
@@ -147,9 +240,6 @@ public class EloRatingService {
                         target = Math.max(MIN_ELO, target + nullToZero(snapshot.eloDelta()));
                     }
                 }
-            }
-            if (winnerIds.contains(playerId)) {
-                target = Math.max(MIN_ELO, target + loserLossTotal);
             }
             targetRatings.put(playerId, target);
         }
@@ -173,10 +263,9 @@ public class EloRatingService {
         }
         statisticRepository.saveAll(stats.values());
         log.info(
-                "NOB ELO completed players={} winners={} loserLossBonus={}",
+                "NOB ranked ELO completed players={} winners={}",
                 distinctPlayerIds.size(),
-                winnerIds.size(),
-                loserLossTotal
+                winnerIds.size()
         );
         return new EloMatchResult(changes, roomAverage);
     }
@@ -267,7 +356,14 @@ public class EloRatingService {
         return value == null ? 0 : value;
     }
 
-    public record PlayerOutcome(String playerId, boolean winner) {
+    private record GainShare(String playerId, double remainder, int order) {
+    }
+
+    public record PlayerOutcome(String playerId, boolean winner, Integer score) {
+
+        public PlayerOutcome(String playerId, boolean winner) {
+            this(playerId, winner, null);
+        }
     }
 
     public record EloChange(

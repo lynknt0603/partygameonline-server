@@ -25,6 +25,7 @@ import com.partygameonline.game.nob.domain.NobMoonMark;
 import com.partygameonline.game.nob.domain.NobObservation;
 import com.partygameonline.game.nob.domain.NobPendingDecision;
 import com.partygameonline.game.nob.domain.NobPhase;
+import com.partygameonline.game.nob.domain.NobPhaseState;
 import com.partygameonline.game.nob.domain.NobPlayerState;
 import com.partygameonline.game.nob.domain.NobRoundResult;
 import com.partygameonline.game.nob.domain.NobResolutionItem;
@@ -65,6 +66,15 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
             NobEloChange eloChange = state.isFinished()
                     ? finalElo.get(player.getPlayerId())
                     : roundElo.get(player.getPlayerId());
+            // Final-match Elo shown to players is a presentation value. Keep
+            // the domain/ranking Elo unchanged, but expose the final delta
+            // divided by ten and rounded down. Round-summary deltas remain
+            // untouched.
+            Integer displayedEloDelta = eloChange == null
+                    ? null
+                    : state.isFinished()
+                    ? Math.floorDiv(eloChange.eloDelta(), 10)
+                    : eloChange.eloDelta();
             players.add(new NobPublicPlayerView(
                     player.getPlayerId(),
                     player.getDisplayName(),
@@ -78,7 +88,7 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                     player.getRevealedCards().stream().map(NobGameProjector::cardView).toList(),
                     player.getHand().size(),
                     eloChange == null ? null : eloChange.oldElo(),
-                    eloChange == null ? null : eloChange.eloDelta(),
+                    displayedEloDelta,
                     eloChange == null ? null : eloChange.newElo()
             ));
         }
@@ -104,8 +114,11 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         } else if (inGame && state.hasUnclaimedMoonPick(you)) {
             pendingView = moonPickView(state, you);
         }
+        boolean waitingForSecretSubmissions = state.getPhaseState() == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS;
         List<String> unclaimedMoon = state.unclaimedMoonPlayerIds();
-        String actorId = state.getPendingDecision() != null
+        String actorId = waitingForSecretSubmissions
+                ? null
+                : state.getPendingDecision() != null
                 ? state.getPendingDecision().actorId()
                 : (!unclaimedMoon.isEmpty() ? unclaimedMoon.getFirst() : state.getCurrentActorPlayerId());
         String decisionType = state.getPendingDecision() != null
@@ -188,8 +201,8 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                 state.getCurrentResolvingCard() == null ? null : cardView(state.getCurrentResolvingCard()),
                 actorId,
                 decisionType,
-                state.submittedPlayerIds(),
-                announcementView(state.getAnnouncement()),
+                viewerSubmittedPlayerIds(state, you),
+                announcementView(state.getAnnouncement(), waitingForSecretSubmissions),
                 roundResultView(state.getLastRoundResult()),
                 List.copyOf(state.getRoundRewardPlayerIds()),
                 state.getTiming().toMap(),
@@ -282,14 +295,18 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         );
     }
 
-    private static NobAnnouncementView announcementView(NobAnnouncement announcement) {
+    private static List<String> viewerSubmittedPlayerIds(NobGameState state, String viewerId) {
+        return state.submittedPlayerIds().contains(viewerId) ? List.of(viewerId) : List.of();
+    }
+
+    private static NobAnnouncementView announcementView(NobAnnouncement announcement, boolean hideActor) {
         if (announcement == null) {
             return null;
         }
         return new NobAnnouncementView(
                 announcement.id(),
                 announcement.type(),
-                announcement.actorPlayerId(),
+                hideActor ? null : announcement.actorPlayerId(),
                 announcement.targetPlayerId(),
                 announcement.cardCode(),
                 announcement.reactionCardCode(),

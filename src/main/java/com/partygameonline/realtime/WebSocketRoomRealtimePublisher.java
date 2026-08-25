@@ -1,10 +1,12 @@
 package com.partygameonline.realtime;
 
+import com.partygameonline.game.nob.domain.NobEvent;
 import com.partygameonline.room.api.dto.RoomResponse;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -97,10 +99,46 @@ public class WebSocketRoomRealtimePublisher implements RoomRealtimePublisher {
                 WsMessageTypes.GAME_EVENTS,
                 sequence,
                 requestId,
-                Map.of("actorPlayerId", actorPlayerId, "events", events),
+                gameEventsPayload(events),
                 viewsByPlayer,
                 recipients(room)
         );
+    }
+
+    /**
+     * Game events are broadcast to every player, so fields that identify a
+     * secret actor or reveal a private value must never be sent in this
+     * shared envelope. Player-specific secrets remain available through the
+     * projected view sent to that player.
+     */
+    static Map<String, Object> gameEventsPayload(List<Object> events) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("actorPlayerId", null);
+        payload.put("events", events == null
+                ? List.of()
+                : events.stream().map(WebSocketRoomRealtimePublisher::sanitizeEvent).toList());
+        return payload;
+    }
+
+    static Object sanitizeEvent(Object event) {
+        if (!(event instanceof NobEvent nobEvent)) {
+            return event;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>(
+                nobEvent.payload() == null ? Map.of() : nobEvent.payload()
+        );
+        switch (nobEvent.type()) {
+            case "NOB_MOON_MARK_COUNT_CHANGED" -> payload.remove("value");
+            case "NOB_PRIVATE_BLOODLINE_SEEN",
+                    "NOB_PRIVATE_CARD_SEEN",
+                    "NOB_PRIVATE_MOON_SEEN" -> payload.remove("viewerId");
+            case "NOB_DECISION_REQUIRED" -> payload.remove("actorId");
+            case "NOB_PLAYER_AUTO_ACTION" -> payload.remove("playerId");
+            default -> {
+                // Public events keep their public payload unchanged.
+            }
+        }
+        return new NobEvent(nobEvent.type(), Collections.unmodifiableMap(payload));
     }
 
     @Override

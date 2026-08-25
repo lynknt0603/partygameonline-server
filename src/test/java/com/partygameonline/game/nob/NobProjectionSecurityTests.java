@@ -12,6 +12,7 @@ import com.partygameonline.game.nob.domain.NobMoonMark;
 import com.partygameonline.game.nob.domain.NobObservation;
 import com.partygameonline.game.nob.domain.NobPhase;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -108,6 +109,25 @@ class NobProjectionSecurityTests {
         assertThat(p3.publicLog()).anyMatch(entry ->
                 "NOB_INSPECTED".equals(entry.type())
                         && "p1".equals(entry.actorPlayerId())
-                        && "p2".equals(entry.targetPlayerId()));
+                && "p2".equals(entry.targetPlayerId()));
+    }
+
+    @Test
+    void secretPhaseDoesNotRevealWhichOtherPlayersSubmitted() {
+        NobGameState state = NobTestSupport.fourPlayers(8);
+        state.getDraftHands().clear();
+        state.beginNightPhase(NobPhase.SHADOW_STALKER);
+        state.getPhaseSubmissions().put("p1", List.of("card-p1"));
+        state.announce("PLAYER_AUTO_ACTION", "p1", null, null, null, "nob.timeout.autoAction");
+
+        NobView submitter = projector.project(state, NobTestSupport.viewer("p1"));
+        NobView observer = projector.project(state, NobTestSupport.viewer("p2"));
+
+        assertThat(submitter.submittedPlayerIds()).containsExactly("p1");
+        assertThat(observer.submittedPlayerIds()).isEmpty();
+        assertThat(submitter.currentActorPlayerId()).isNull();
+        assertThat(observer.currentActorPlayerId()).isNull();
+        assertThat(submitter.announcement().actorPlayerId()).isNull();
+        assertThat(observer.announcement().actorPlayerId()).isNull();
     }
 }

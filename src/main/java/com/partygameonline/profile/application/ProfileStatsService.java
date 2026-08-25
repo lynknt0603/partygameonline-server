@@ -7,19 +7,24 @@ import com.partygameonline.history.infrastructure.MatchEntity;
 import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
+import com.partygameonline.common.error.ApiException;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.session.domain.SessionKind;
+import com.partygameonline.user.infrastructure.UserEntity;
+import com.partygameonline.user.infrastructure.UserJpaRepository;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,25 +40,28 @@ public class ProfileStatsService {
     private final MatchPlayerJpaRepository playerRepository;
     private final NobGameRoundJpaRepository roundRepository;
     private final UserGameStatisticJpaRepository statisticRepository;
+    private final UserJpaRepository userRepository;
 
     @Autowired
     public ProfileStatsService(
             MatchJpaRepository matchRepository,
             MatchPlayerJpaRepository playerRepository,
             NobGameRoundJpaRepository roundRepository,
-            UserGameStatisticJpaRepository statisticRepository
+            UserGameStatisticJpaRepository statisticRepository,
+            UserJpaRepository userRepository
     ) {
         this.matchRepository = matchRepository;
         this.playerRepository = playerRepository;
         this.roundRepository = roundRepository;
         this.statisticRepository = statisticRepository;
+        this.userRepository = userRepository;
     }
 
     public ProfileStatsService(
             MatchJpaRepository matchRepository,
             MatchPlayerJpaRepository playerRepository
     ) {
-        this(matchRepository, playerRepository, null, null);
+        this(matchRepository, playerRepository, null, null, null);
     }
 
     public ProfileStatsService(
@@ -61,17 +69,60 @@ public class ProfileStatsService {
             MatchPlayerJpaRepository playerRepository,
             NobGameRoundJpaRepository roundRepository
     ) {
-        this(matchRepository, playerRepository, roundRepository, null);
+        this(matchRepository, playerRepository, roundRepository, null, null);
     }
 
     @Transactional(readOnly = true)
     public ProfileStatsResponse getStats(PlayerPrincipal principal) {
-        List<MatchEntity> nobMatches = matchRepository.findAllFinishedForPlayerAndGame(
+        return buildStats(
                 principal.playerId(),
+                principal.displayName(),
+                principal.createdAt(),
+                principal.kind() == SessionKind.MEMBER ? "Member" : "Guest"
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ProfileStatsResponse getStatsByUsername(String username) {
+        if (userRepository == null) {
+            throw new ApiException("PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found");
+        }
+        String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        UserEntity user = userRepository.findByUsername(normalized).orElse(null);
+        if (user != null) {
+            return buildStats(user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), "Member");
+        }
+        if (statisticRepository != null && statisticRepository.findByUserIdAndGameCode(
+                username,
+                NobGameManifest.ID
+        ).isPresent()) {
+            MatchPlayerEntity latest = playerRepository
+                    .findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of(username))
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+            return buildStats(
+                    username,
+                    latest == null ? username : latest.getDisplayName(),
+                    latest == null ? null : latest.getCreatedAt(),
+                    "Guest"
+            );
+        }
+        throw new ApiException("PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found");
+    }
+
+    private ProfileStatsResponse buildStats(
+            String playerId,
+            String displayName,
+            Instant createdAt,
+            String role
+    ) {
+        List<MatchEntity> nobMatches = matchRepository.findAllFinishedForPlayerAndGame(
+                playerId,
                 NobGameManifest.ID
         );
-        Map<UUID, MatchPlayerEntity> playerByMatch = playerByMatch(nobMatches, principal.playerId());
-        List<NobGameRoundEntity> rounds = roundRows(nobMatches, principal.playerId());
+        Map<UUID, MatchPlayerEntity> playerByMatch = playerByMatch(nobMatches, playerId);
+        List<NobGameRoundEntity> rounds = roundRows(nobMatches, playerId);
         boolean legacyFactionFallback = roundRepository == null;
 
         FactionCounter vampire = new FactionCounter();
@@ -83,7 +134,7 @@ public class ProfileStatsService {
             if (player == null) {
                 continue;
             }
-            boolean won = isWin(match, player, principal.playerId());
+            boolean won = isWin(match, player, playerId);
             if (won) {
                 matchesWon++;
             }
@@ -101,22 +152,22 @@ public class ProfileStatsService {
             }
         }
 
-        Instant joinedAt = principal.createdAt() == null ? Instant.now() : principal.createdAt();
+        Instant joinedAt = createdAt == null ? Instant.now() : createdAt;
         UserGameStatisticEntity statistic = statisticRepository == null
                 ? null
                 : statisticRepository.findByUserIdAndGameCode(
-                        principal.playerId(),
+                        playerId,
                         NobGameManifest.ID
                 ).orElse(null);
         int elo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getEloNob();
         int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestElo();
         return new ProfileStatsResponse(
                 new ProfileStatsResponse.Player(
-                        principal.playerId(),
-                        principal.displayName(),
+                        playerId,
+                        displayName,
                         DEFAULT_AVATAR,
                         JOINED_AT_FORMAT.format(joinedAt),
-                        principal.kind() == SessionKind.MEMBER ? "Member" : "Guest",
+                        role,
                         PLATFORM
                 ),
                 new ProfileStatsResponse.NobStats(

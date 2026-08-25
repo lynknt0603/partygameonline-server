@@ -27,6 +27,8 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 | GET | `/api/v1/matches` | session | 200 page of `MatchResponse` |
 | GET | `/api/v1/matches/{matchId}` | session | 200 `MatchResponse` |
 | GET | `/api/v1/profile/me/stats` | session | 200 `ProfileStatsResponse` |
+| GET | `/api/v1/profile/{username}` | session | 200 public `ProfileStatsResponse` |
+| GET | `/api/v1/rankings?gameId=night-of-bloodlines&sort=highestElo&bloodline=...` | session | 200 `RankingResponse` |
 | GET | `/actuator/health` | public | `{ "status": "UP" }` |
 | GET | `/actuator/info` | public | `{ "app": { "name", "phase" } }` |
 
@@ -64,6 +66,15 @@ summary (and the final result). `eloDelta` is signed, for example `+55` or
 `nobStats.highestElo`.
 
 Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required players are present.
+
+### RankingResponse
+
+`GET /api/v1/rankings` uses the current NOB ELO state from `user_game_statistic`.
+`sort` accepts `highestElo`, `wins`, or `bloodlineWins`; `bloodline` optionally
+filters to `VAMPIRE`, `WEREWOLF`, or `HALFBLOOD`. The response includes the top
+three `podium` entries, paged rows in `entries`, and the current player's `me`
+entry when they are ranked. Member entries also include `username` so the web
+client can link to `/profile/{username}`.
 
 ### CreateRoomRequest
 
