@@ -21,10 +21,13 @@ public record ProfileStatsResponse(
             double winRate,
             FactionStats vampire,
             FactionStats werewolf,
-            FactionStats halfblood
+            FactionStats halfblood,
+            int elo,
+            int highestElo
     ) {
     }
 
+    /** NOB faction counters are round-based; the JSON names remain compatible with the existing client. */
     public record FactionStats(
             long matchesPlayed,
             long matchesWon,

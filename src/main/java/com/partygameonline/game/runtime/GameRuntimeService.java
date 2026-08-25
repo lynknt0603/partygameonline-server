@@ -7,13 +7,19 @@ import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.core.RandomSource;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
+import com.partygameonline.game.nob.domain.NobCompletedRound;
+import com.partygameonline.game.nob.domain.NobEloChange;
+import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.ranking.application.EloRatingService;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -21,11 +27,22 @@ public class GameRuntimeService {
 
     private final GameRegistry gameRegistry;
     private final GameSessionRepository sessionRepository;
+    private final EloRatingService eloRatingService;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public GameRuntimeService(GameRegistry gameRegistry, GameSessionRepository sessionRepository) {
+    @Autowired
+    public GameRuntimeService(
+            GameRegistry gameRegistry,
+            GameSessionRepository sessionRepository,
+            EloRatingService eloRatingService
+    ) {
         this.gameRegistry = gameRegistry;
         this.sessionRepository = sessionRepository;
+        this.eloRatingService = eloRatingService;
+    }
+
+    public GameRuntimeService(GameRegistry gameRegistry, GameSessionRepository sessionRepository) {
+        this(gameRegistry, sessionRepository, null);
     }
 
     public Optional<GameSession> startGame(GameRoom room) {
@@ -81,6 +98,7 @@ public class GameRuntimeService {
                 action,
                 session.getRandom()
         );
+        applyRoundElo(session, result.state());
         session.setState(result.state());
         if (result.finished()) {
             session.finish(result.winnerPlayerId(), Instant.now(), "COMPLETED");
@@ -96,6 +114,7 @@ public class GameRuntimeService {
                 player,
                 session.getRandom()
         );
+        applyRoundElo(session, result.state());
         session.setState(result.state());
         if (result.finished()) {
             session.finish(result.winnerPlayerId(), Instant.now(), "FORFEIT");
@@ -118,5 +137,34 @@ public class GameRuntimeService {
                 session.getState(),
                 PlayerContext.player(player.getPlayerId(), player.getDisplayName())
         );
+    }
+
+    private void applyRoundElo(GameSession session, Object nextState) {
+        if (eloRatingService == null || !(nextState instanceof NobGameState nob)) {
+            return;
+        }
+        for (NobCompletedRound round : nob.getCompletedRounds()) {
+            if (session.isEloRoundProcessed(round.roundNumber())) {
+                continue;
+            }
+            List<EloRatingService.PlayerOutcome> outcomes = round.players().stream()
+                    .map(player -> new EloRatingService.PlayerOutcome(
+                            player.playerId(),
+                            "WIN".equalsIgnoreCase(player.result())
+                    ))
+                    .toList();
+            EloRatingService.EloMatchResult result = eloRatingService.previewRound(
+                    session.getGameId(),
+                    outcomes,
+                    nob.getEloSimulation()
+            );
+            Map<String, NobEloChange> changes = new LinkedHashMap<>();
+            result.changes().forEach((playerId, change) -> changes.put(
+                    playerId,
+                    new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
+            ));
+            nob.recordRoundEloChanges(round.roundNumber(), changes);
+            session.markEloRoundProcessed(round.roundNumber());
+        }
     }
 }

@@ -1525,6 +1525,7 @@ public final class NobRulesEngine {
         events.add(NobEvent.of("NOB_ROUND_RESULT", roundPayload));
         state.announce("ROUND_RESULT", null, null, null, null, "nob.round.result");
         List<String> rewards = NobScoringService.rewardPlayerIds(state, result);
+        state.recordCompletedRound(state.getLastRoundResult(), rewards);
         state.beginRoundSummary(rewards, random);
         events.add(NobEvent.of("NOB_PHASE_CHANGED", Map.of("phase", NobPhase.ROUND_SUMMARY.name())));
     }

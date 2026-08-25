@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.history.infrastructure.MatchEntity;
 import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
@@ -30,6 +32,9 @@ class ProfileStatsServiceTests {
     @Mock
     private MatchPlayerJpaRepository playerRepository;
 
+    @Mock
+    private NobGameRoundJpaRepository roundRepository;
+
     @InjectMocks
     private ProfileStatsService service;
 
@@ -49,6 +54,14 @@ class ProfileStatsServiceTests {
                 player(werewolfWin, "WIN", "WEREWOLF"),
                 player(halfbloodLoss, "LOSS", "HALFBLOOD")
         ));
+        when(roundRepository.findByGameIdInAndPlayerIdOrderByGameIdAscRoundNumberAscIdAsc(
+                matches.stream().map(MatchEntity::getId).toList(), PLAYER_ID
+        )).thenReturn(List.of(
+                round(vampireWin, 1, "VAMPIRE", "WIN", "VAMPIRE"),
+                round(vampireLoss, 1, "VAMPIRE", "LOSS", "WEREWOLF"),
+                round(werewolfWin, 1, "WEREWOLF", "WIN", "WEREWOLF"),
+                round(halfbloodLoss, 1, "HALFBLOOD", "LOSS", "VAMPIRE")
+        ));
 
         ProfileStatsResponse response = service.getStats(
                 new PlayerPrincipal(PLAYER_ID, "BloodMoon", com.partygameonline.session.domain.SessionKind.MEMBER,
@@ -64,6 +77,39 @@ class ProfileStatsServiceTests {
         assertThat(response.nobStats().vampire()).isEqualTo(new ProfileStatsResponse.FactionStats(2, 1, 50.0));
         assertThat(response.nobStats().werewolf()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
         assertThat(response.nobStats().halfblood()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 0, 0.0));
+    }
+
+    @Test
+    void countsFactionStatsPerRoundWhileTotalsStayPerGame() {
+        MatchEntity firstGame = match("2026-08-21T10:00:00Z");
+        MatchEntity secondGame = match("2026-08-21T11:00:00Z");
+        List<MatchEntity> games = List.of(firstGame, secondGame);
+        when(matchRepository.findAllFinishedForPlayerAndGame(PLAYER_ID, NobGameManifest.ID)).thenReturn(games);
+        when(playerRepository.findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(
+                games.stream().map(MatchEntity::getId).toList()
+        )).thenReturn(List.of(
+                player(firstGame, "WIN", "VAMPIRE"),
+                player(secondGame, "LOSS", "HALFBLOOD")
+        ));
+        when(roundRepository.findByGameIdInAndPlayerIdOrderByGameIdAscRoundNumberAscIdAsc(
+                games.stream().map(MatchEntity::getId).toList(), PLAYER_ID
+        )).thenReturn(List.of(
+                round(firstGame, 1, "VAMPIRE", "WIN", "VAMPIRE"),
+                round(firstGame, 2, "WEREWOLF", "LOSS", "WEREWOLF"),
+                round(secondGame, 1, "HALFBLOOD", "WIN", "LAST_HOPE_HALFBLOOD")
+        ));
+
+        ProfileStatsResponse response = service.getStats(
+                new PlayerPrincipal(PLAYER_ID, "BloodMoon", com.partygameonline.session.domain.SessionKind.MEMBER,
+                        Instant.parse("2025-02-12T00:00:00Z"))
+        );
+
+        assertThat(response.nobStats().totalMatches()).isEqualTo(2);
+        assertThat(response.nobStats().matchesWon()).isEqualTo(1);
+        assertThat(response.nobStats().winRate()).isEqualTo(50.0);
+        assertThat(response.nobStats().vampire()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
+        assertThat(response.nobStats().werewolf()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 0, 0.0));
+        assertThat(response.nobStats().halfblood()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
     }
 
     private static MatchEntity match(String finishedAt) {
@@ -89,6 +135,27 @@ class ProfileStatsServiceTests {
                 10,
                 "HUNTER",
                 bloodline
+        );
+    }
+
+    private static NobGameRoundEntity round(
+            MatchEntity match,
+            int roundNumber,
+            String bloodline,
+            String result,
+            String roundResult
+    ) {
+        return new NobGameRoundEntity(
+                UUID.randomUUID(),
+                match.getId(),
+                roundNumber,
+                PLAYER_ID,
+                bloodline,
+                result,
+                roundResult,
+                false,
+                5,
+                Instant.now()
         );
     }
 }

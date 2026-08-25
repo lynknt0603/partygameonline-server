@@ -10,44 +10,44 @@ class GameRegistryTests {
 
     @Test
     void resolvesManifestByIdWithoutSwitch() {
-        GameManifest demo = new StubManifest("demo-card-game", "Demo");
-        GameRegistry registry = new GameRegistry(List.of(demo, new StubManifest("other", "Other")));
+        GameManifest testGame = new StubManifest("test-game", "Test game");
+        GameRegistry registry = new GameRegistry(List.of(testGame, new StubManifest("other", "Other")));
 
-        assertThat(registry.findById("demo-card-game")).contains(demo);
+        assertThat(registry.findById("test-game")).contains(testGame);
         assertThat(registry.findById("missing")).isEmpty();
-        assertThat(registry.all()).extracting(GameManifest::id).containsExactly("demo-card-game", "other");
+        assertThat(registry.all()).extracting(GameManifest::id).containsExactly("test-game", "other");
     }
 
     @Test
     void rejectsDuplicateGameIds() {
         assertThatThrownBy(() -> new GameRegistry(List.of(
-                new StubManifest("demo-card-game", "A"),
-                new StubManifest("demo-card-game", "B")
+                new StubManifest("test-game", "A"),
+                new StubManifest("test-game", "B")
         ))).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("demo-card-game");
+                .hasMessageContaining("test-game");
     }
 
     @Test
     void resolvesEngineByGameTypeWithoutSwitch() {
-        StubEngine engine = new StubEngine("demo-card-game");
-        StubProjector projector = new StubProjector("demo-card-game");
+        StubEngine engine = new StubEngine("test-game");
+        StubProjector projector = new StubProjector("test-game");
         GameRegistry registry = new GameRegistry(
-                List.of(new StubManifest("demo-card-game", "Demo")),
+                List.of(new StubManifest("test-game", "Test game")),
                 List.of(engine),
                 List.of(projector)
         );
 
-        assertThat(registry.hasEngine("demo-card-game")).isTrue();
-        assertThat(registry.findEngine("demo-card-game")).contains(engine);
-        assertThat(registry.findProjector("demo-card-game")).contains(projector);
+        assertThat(registry.hasEngine("test-game")).isTrue();
+        assertThat(registry.findEngine("test-game")).contains(engine);
+        assertThat(registry.findProjector("test-game")).contains(projector);
         assertThat(registry.hasEngine("other")).isFalse();
     }
 
     @Test
     void rejectsEngineWithoutMatchingProjector() {
         assertThatThrownBy(() -> new GameRegistry(
-                List.of(new StubManifest("demo-card-game", "Demo")),
-                List.of(new StubEngine("demo-card-game")),
+                List.of(new StubManifest("test-game", "Test game")),
+                List.of(new StubEngine("test-game")),
                 List.of()
         )).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("projector");

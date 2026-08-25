@@ -66,38 +66,9 @@ Rejected actions do not increment `serverSequence`. Accepted actions send per-pl
 
 Each room-scoped message includes `payload.room` (`RoomResponse`). Game messages that have a session also include this viewer's `payload.view`.
 
-## Player-specific game view (`demo-card-game`)
+## Night of Bloodlines game view
 
-```json
-{
-  "you": "p1",
-  "currentPlayerId": "p1",
-  "turnNumber": 1,
-  "yourTurn": true,
-  "hasDrawn": false,
-  "hasPlayed": false,
-  "hand": ["H-06", "C-01", "D-11", "S-03", "H-12"],
-  "deckSize": 42,
-  "opponentHandSize": 5,
-  "discard": [],
-  "finished": false,
-  "winnerPlayerId": null
-}
-```
-
-Never: opponent card ids, deck order, seed, or future randomness.
-
-NOB (`night-of-bloodlines`) uses the same envelope structure for all `NOB_*` action types and projected views.
-
-## Demo actions
-
-```json
-{ "type": "DRAW_CARD" }
-{ "type": "PLAY_CARD", "cardId": "H-06" }
-{ "type": "END_TURN" }
-```
-
-Public events: `CARD_DRAWN` (no card id), `CARD_PLAYED` (`cardId` is public), `TURN_ENDED`, `GAME_WON`, `GAME_FORFEIT`.
+`night-of-bloodlines` uses the same envelope structure for all `NOB_*` action types and projected views. The projection is viewer-specific: it includes that player's hand, private bloodline observations, pending decisions, and Moon Mark values while exposing only public seats, counts, and reveals to other players.
 
 ## Reconnect
 
@@ -115,6 +86,6 @@ If `ROOM_SNAPSHOT` includes `lastServerSequence` behind the room, the server als
 If grace expires while still disconnected:
 
 - `WAITING`: the player is removed (same as leave)
-- `IN_GAME`: the demo engine forfeits and the opponent wins (`GAME_FINISHED` / `GAME_FORFEIT`)
+- `IN_GAME`: the Night of Bloodlines engine applies its abandonment rules and publishes the resulting game state.
 
 `requestId` remains idempotent across retries.

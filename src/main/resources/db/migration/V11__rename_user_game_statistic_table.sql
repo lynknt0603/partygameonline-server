@@ -1,0 +1,24 @@
+ALTER TABLE user_game_statistics RENAME TO user_game_statistic;
+
+ALTER INDEX idx_user_game_statistics_user RENAME TO idx_user_game_statistic_user;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT pk_user_game_statistics TO pk_user_game_statistic;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT uq_user_game_statistics_user_game TO uq_user_game_statistic_user_game;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT ck_user_game_statistics_elo_non_negative TO ck_user_game_statistic_elo_non_negative;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT ck_user_game_statistics_elo_nob_non_negative TO ck_user_game_statistic_elo_nob_non_negative;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT ck_user_game_statistics_highest_elo_non_negative TO ck_user_game_statistic_highest_elo_non_negative;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT ck_user_game_statistics_total_match_non_negative TO ck_user_game_statistic_total_match_non_negative;
+
+ALTER TABLE user_game_statistic
+    RENAME CONSTRAINT ck_user_game_statistics_total_win_non_negative TO ck_user_game_statistic_total_win_non_negative;

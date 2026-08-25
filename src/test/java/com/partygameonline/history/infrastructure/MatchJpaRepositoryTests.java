@@ -31,7 +31,7 @@ class MatchJpaRepositoryTests {
     @Test
     void savesCompletedMatchWithPlayers() {
         UserEntity user = userJpaRepository.saveAndFlush(UserEntity.newUser("Linh"));
-        MatchEntity match = matchJpaRepository.saveAndFlush(MatchEntity.newMatch("demo-card-game"));
+        MatchEntity match = matchJpaRepository.saveAndFlush(MatchEntity.newMatch("night-of-bloodlines"));
         match.finish(Instant.now());
         matchJpaRepository.saveAndFlush(match);
 
@@ -45,7 +45,7 @@ class MatchJpaRepositoryTests {
         MatchEntity found = matchJpaRepository.findById(match.getId()).orElseThrow();
         List<MatchPlayerEntity> players = matchPlayerJpaRepository.findByMatchIdOrderBySeatAscIdAsc(match.getId());
 
-        assertThat(found.getGameId()).isEqualTo("demo-card-game");
+        assertThat(found.getGameId()).isEqualTo("night-of-bloodlines");
         assertThat(found.getFinishedAt()).isNotNull();
         assertThat(players).hasSize(2);
         assertThat(players.get(0).getPlayerId()).isEqualTo("P1");
@@ -56,7 +56,7 @@ class MatchJpaRepositoryTests {
 
     @Test
     void rejectsDuplicatePlayerInSameMatch() {
-        MatchEntity match = matchJpaRepository.saveAndFlush(MatchEntity.newMatch("demo-card-game"));
+        MatchEntity match = matchJpaRepository.saveAndFlush(MatchEntity.newMatch("night-of-bloodlines"));
         matchPlayerJpaRepository.saveAndFlush(
                 MatchPlayerEntity.newPlayer(match.getId(), null, "P1", "Linh", 0)
         );

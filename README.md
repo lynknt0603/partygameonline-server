@@ -17,7 +17,6 @@ The system is built as a server-authoritative modular monolith in Spring Boot an
 | Game Identifier | Name | Players | Description |
 |---|---|---|---|
 | `night-of-bloodlines` | Night of Bloodlines | 4–11 | Social deduction and bluffing game featuring 5 night phases, card drafting, Moon Mark mechanics, and live reactions. |
-| `demo-card-game` | Demo Card Game | 2 | Turn-based 52-card game testing draw/play validation, state transitions, and victory conditions. |
 
 ## Tech Stack
 
@@ -37,7 +36,6 @@ com.partygameonline
 ├── game/
 │   ├── core/         # Game engine contracts and registry
 │   ├── runtime/      # Active session management and dispatcher
-│   ├── games/demo/   # Demo card game module
 │   └── nob/          # Night of Bloodlines engine and projector
 ├── history/          # Match history persistence and query API
 ├── realtime/         # WebSocket handler, message envelopes, chat

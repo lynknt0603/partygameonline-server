@@ -18,6 +18,7 @@ import com.partygameonline.game.nob.domain.NobBloodline;
 import com.partygameonline.game.nob.domain.NobBloodlineKnowledge;
 import com.partygameonline.game.nob.domain.NobCardInstance;
 import com.partygameonline.game.nob.domain.NobDecisionType;
+import com.partygameonline.game.nob.domain.NobEloChange;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobInspectReveal;
 import com.partygameonline.game.nob.domain.NobMoonMark;
@@ -46,6 +47,14 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
         NobPlayerState self = state.player(you);
         boolean inGame = self != null && viewer.kind() == ViewerKind.PLAYER;
         List<NobPublicPlayerView> players = new ArrayList<>();
+        boolean showRoundElo = state.getPhase() == NobPhase.ROUND_SUMMARY || state.getPhase() == NobPhase.GAME_OVER;
+        int lastRoundNumber = state.getCompletedRounds().isEmpty()
+                ? -1
+                : state.getCompletedRounds().getLast().roundNumber();
+        java.util.Map<String, NobEloChange> roundElo = showRoundElo
+                ? state.getRoundEloChanges(lastRoundNumber)
+                : java.util.Map.of();
+        java.util.Map<String, NobEloChange> finalElo = state.getFinalEloChanges();
         for (NobPlayerState player : state.getPlayers()) {
             boolean revealBloodline = player.getKnowledgeState() == NobBloodlineKnowledge.PUBLICLY_REVEALED
                     || state.getPhase() == NobPhase.BLOODLINE_REVEAL
@@ -53,6 +62,9 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                     || state.getPhase() == NobPhase.ROUND_SUMMARY
                     || state.getPhase() == NobPhase.GAME_OVER;
             Integer score = state.isFinished() ? player.score() : null;
+            NobEloChange eloChange = state.isFinished()
+                    ? finalElo.get(player.getPlayerId())
+                    : roundElo.get(player.getPlayerId());
             players.add(new NobPublicPlayerView(
                     player.getPlayerId(),
                     player.getDisplayName(),
@@ -64,7 +76,10 @@ public class NobGameProjector implements GameStateProjector<NobGameState, NobVie
                     score,
                     revealBloodline ? bloodlineView(player.getCurrentBloodline()) : null,
                     player.getRevealedCards().stream().map(NobGameProjector::cardView).toList(),
-                    player.getHand().size()
+                    player.getHand().size(),
+                    eloChange == null ? null : eloChange.oldElo(),
+                    eloChange == null ? null : eloChange.eloDelta(),
+                    eloChange == null ? null : eloChange.newElo()
             ));
         }
         List<NobCardView> myHand = inGame ? self.getHand().stream().map(NobGameProjector::cardView).toList() : List.of();

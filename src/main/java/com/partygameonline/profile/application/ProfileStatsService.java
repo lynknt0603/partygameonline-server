@@ -1,11 +1,15 @@
 package com.partygameonline.profile.application;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.history.infrastructure.MatchEntity;
 import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.session.domain.SessionKind;
 import java.time.Instant;
@@ -15,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,13 +33,35 @@ public class ProfileStatsService {
 
     private final MatchJpaRepository matchRepository;
     private final MatchPlayerJpaRepository playerRepository;
+    private final NobGameRoundJpaRepository roundRepository;
+    private final UserGameStatisticJpaRepository statisticRepository;
+
+    @Autowired
+    public ProfileStatsService(
+            MatchJpaRepository matchRepository,
+            MatchPlayerJpaRepository playerRepository,
+            NobGameRoundJpaRepository roundRepository,
+            UserGameStatisticJpaRepository statisticRepository
+    ) {
+        this.matchRepository = matchRepository;
+        this.playerRepository = playerRepository;
+        this.roundRepository = roundRepository;
+        this.statisticRepository = statisticRepository;
+    }
 
     public ProfileStatsService(
             MatchJpaRepository matchRepository,
             MatchPlayerJpaRepository playerRepository
     ) {
-        this.matchRepository = matchRepository;
-        this.playerRepository = playerRepository;
+        this(matchRepository, playerRepository, null, null);
+    }
+
+    public ProfileStatsService(
+            MatchJpaRepository matchRepository,
+            MatchPlayerJpaRepository playerRepository,
+            NobGameRoundJpaRepository roundRepository
+    ) {
+        this(matchRepository, playerRepository, roundRepository, null);
     }
 
     @Transactional(readOnly = true)
@@ -44,6 +71,8 @@ public class ProfileStatsService {
                 NobGameManifest.ID
         );
         Map<UUID, MatchPlayerEntity> playerByMatch = playerByMatch(nobMatches, principal.playerId());
+        List<NobGameRoundEntity> rounds = roundRows(nobMatches, principal.playerId());
+        boolean legacyFactionFallback = roundRepository == null;
 
         FactionCounter vampire = new FactionCounter();
         FactionCounter werewolf = new FactionCounter();
@@ -58,13 +87,29 @@ public class ProfileStatsService {
             if (won) {
                 matchesWon++;
             }
-            FactionCounter faction = factionCounter(player.getBloodline(), vampire, werewolf, halfblood);
+            if (legacyFactionFallback) {
+                FactionCounter faction = factionCounter(player.getBloodline(), vampire, werewolf, halfblood);
+                if (faction != null) {
+                    faction.record(won);
+                }
+            }
+        }
+        for (NobGameRoundEntity round : rounds) {
+            FactionCounter faction = factionCounter(round.getBloodline(), vampire, werewolf, halfblood);
             if (faction != null) {
-                faction.record(won);
+                faction.record(isRoundWin(round));
             }
         }
 
         Instant joinedAt = principal.createdAt() == null ? Instant.now() : principal.createdAt();
+        UserGameStatisticEntity statistic = statisticRepository == null
+                ? null
+                : statisticRepository.findByUserIdAndGameCode(
+                        principal.playerId(),
+                        NobGameManifest.ID
+                ).orElse(null);
+        int elo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getEloNob();
+        int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestElo();
         return new ProfileStatsResponse(
                 new ProfileStatsResponse.Player(
                         principal.playerId(),
@@ -80,9 +125,22 @@ public class ProfileStatsService {
                         rate(matchesWon, nobMatches.size()),
                         vampire.toResponse(),
                         werewolf.toResponse(),
-                        halfblood.toResponse()
+                        halfblood.toResponse(),
+                        elo,
+                        highestElo
                 )
         );
+    }
+
+    private List<NobGameRoundEntity> roundRows(List<MatchEntity> matches, String playerId) {
+        if (roundRepository == null || matches.isEmpty()) {
+            return List.of();
+        }
+        List<NobGameRoundEntity> result = roundRepository.findByGameIdInAndPlayerIdOrderByGameIdAscRoundNumberAscIdAsc(
+                matches.stream().map(MatchEntity::getId).toList(),
+                playerId
+        );
+        return result == null ? List.of() : result;
     }
 
     private Map<UUID, MatchPlayerEntity> playerByMatch(List<MatchEntity> matches, String playerId) {
@@ -104,6 +162,10 @@ public class ProfileStatsService {
             return true;
         }
         return player.getResult() == null && playerId.equals(match.getWinnerPlayerId());
+    }
+
+    private static boolean isRoundWin(NobGameRoundEntity round) {
+        return "WIN".equalsIgnoreCase(round.getResult());
     }
 
     private static FactionCounter factionCounter(

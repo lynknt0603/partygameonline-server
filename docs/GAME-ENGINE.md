@@ -47,20 +47,6 @@ Active sessions live in memory, keyed by room id. Per-room lock is shared with l
 
 `ROOM_SNAPSHOT` includes `payload.view` when a session exists, plus a `GAME_SNAPSHOT` with the same view.
 
-## Demo card game (`demo-card-game`)
-
-2 players. Standard 52-card deck (`H-06` style ids). Deal 5 each. Host starts.
-
-| Action | Rule |
-| --- | --- |
-| `DRAW_CARD` | Your turn, once, deck not empty. Drawn card identity is not in the public event |
-| `PLAY_CARD` | Your turn, card must be in your hand. Multiple plays allowed. Empty hand wins |
-| `END_TURN` | Your turn. Next player, turn++ |
-
-Projection: own hand, opponent `handSize`, `deckSize`, public discard. Never deck order or opponent card ids.
-
-Abandon (used by reconnect grace later): opponent wins.
-
 ## Night of Bloodlines (`night-of-bloodlines`)
 
 Enabled. 4–11 players. Package `com.partygameonline.game.nob`. Reuses `GameEngine` / `GameStateProjector` / `/ws` `GAME_ACTION`.

@@ -21,7 +21,7 @@ Client:
   "requestId": "550e8400-e29b-41d4-a716-446655440000",
   "roomId": "ABCD",
   "lastServerSequence": 3,
-  "payload": { "type": "PLAY_CARD", "cardId": "H-06" }
+  "payload": { "type": "NOB_DRAFT_PICK", "cardInstanceId": "card-instance-1" }
 }
 ```
 
@@ -61,35 +61,8 @@ Game: `GAME_STARTED`, `GAME_EVENTS`, `GAME_SNAPSHOT`, `GAME_FINISHED`, `ACTION_R
 
 Almost every room-scoped message includes `payload.room` (`RoomResponse`). Game messages that have a session also include **this viewer's** `payload.view`. Never treat another player's message as your view.
 
-## Demo card `view`
+## Night of Bloodlines view and actions
 
-```json
-{
-  "you": "…",
-  "currentPlayerId": "…",
-  "turnNumber": 1,
-  "yourTurn": true,
-  "hasDrawn": false,
-  "hasPlayed": false,
-  "hand": ["H-06", "C-01"],
-  "deckSize": 42,
-  "opponentHandSize": 5,
-  "discard": [],
-  "finished": false,
-  "winnerPlayerId": null
-}
-```
-
-You will never receive the opponent's card ids or the deck order.
-
-## Demo card actions
-
-```json
-{ "type": "DRAW_CARD" }
-{ "type": "PLAY_CARD", "cardId": "H-06" }
-{ "type": "END_TURN" }
-```
-
-Public events: `CARD_DRAWN` (no `cardId`), `CARD_PLAYED` (includes `cardId`), `TURN_ENDED`, `GAME_WON`, `GAME_FORFEIT`.
+The `night-of-bloodlines` projection is viewer-specific. Send `NOB_*` action payloads through `GAME_ACTION`; the server validates the current phase, pending decision, and selected cards/targets before publishing the next projected view.
 
 Error codes: `contracts/websocket/ERROR-CODES.md`.

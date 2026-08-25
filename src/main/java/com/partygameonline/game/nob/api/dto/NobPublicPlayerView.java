@@ -13,6 +13,40 @@ public record NobPublicPlayerView(
         Integer score,
         NobBloodlineView publiclyRevealedBloodline,
         List<NobCardView> revealedCards,
-        int hiddenCardCount
+        int hiddenCardCount,
+        Integer elo,
+        Integer eloDelta,
+        Integer newElo
 ) {
+
+    public NobPublicPlayerView(
+            String playerId,
+            String displayName,
+            int seat,
+            boolean alive,
+            boolean connected,
+            boolean you,
+            int moonMarkCount,
+            Integer score,
+            NobBloodlineView publiclyRevealedBloodline,
+            List<NobCardView> revealedCards,
+            int hiddenCardCount
+    ) {
+        this(
+                playerId,
+                displayName,
+                seat,
+                alive,
+                connected,
+                you,
+                moonMarkCount,
+                score,
+                publiclyRevealedBloodline,
+                revealedCards,
+                hiddenCardCount,
+                null,
+                null,
+                null
+        );
+    }
 }

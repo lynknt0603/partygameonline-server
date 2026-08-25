@@ -26,6 +26,8 @@ class FlywayMigrationTests {
         assertThat(tableExists("users")).isTrue();
         assertThat(tableExists("matches")).isTrue();
         assertThat(tableExists("match_players")).isTrue();
+        assertThat(tableExists("nob_game_rounds")).isTrue();
+        assertThat(tableExists("user_game_statistic")).isTrue();
         assertThat(tableExists("nob_game_session")).isTrue();
         assertThat(tableExists("nob_game_event")).isTrue();
     }

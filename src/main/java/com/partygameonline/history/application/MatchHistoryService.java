@@ -3,6 +3,8 @@ package com.partygameonline.history.application;
 import com.partygameonline.common.error.ResourceNotFoundException;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobPlayerState;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
+import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.core.GameRegistry;
 import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
 import com.partygameonline.history.api.dto.MatchHistoryPlayerResponse;
@@ -14,6 +16,8 @@ import com.partygameonline.history.infrastructure.MatchEntity;
 import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
+import com.partygameonline.ranking.application.EloRatingService;
+import com.partygameonline.game.nob.domain.NobEloChange;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.time.Instant;
@@ -28,6 +32,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,55 +45,134 @@ public class MatchHistoryService {
     private final MatchJpaRepository matchJpaRepository;
     private final MatchPlayerJpaRepository matchPlayerJpaRepository;
     private final GameRegistry gameRegistry;
+    private final NobGameRoundJpaRepository nobGameRoundJpaRepository;
+    private final EloRatingService eloRatingService;
+
+    @Autowired
+    public MatchHistoryService(
+            MatchJpaRepository matchJpaRepository,
+            MatchPlayerJpaRepository matchPlayerJpaRepository,
+            GameRegistry gameRegistry,
+            NobGameRoundJpaRepository nobGameRoundJpaRepository,
+            EloRatingService eloRatingService
+    ) {
+        this.matchJpaRepository = matchJpaRepository;
+        this.matchPlayerJpaRepository = matchPlayerJpaRepository;
+        this.gameRegistry = gameRegistry;
+        this.nobGameRoundJpaRepository = nobGameRoundJpaRepository;
+        this.eloRatingService = eloRatingService;
+    }
 
     public MatchHistoryService(
             MatchJpaRepository matchJpaRepository,
             MatchPlayerJpaRepository matchPlayerJpaRepository,
             GameRegistry gameRegistry
     ) {
-        this.matchJpaRepository = matchJpaRepository;
-        this.matchPlayerJpaRepository = matchPlayerJpaRepository;
-        this.gameRegistry = gameRegistry;
+        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, null, null);
+    }
+
+    public MatchHistoryService(
+            MatchJpaRepository matchJpaRepository,
+            MatchPlayerJpaRepository matchPlayerJpaRepository,
+            GameRegistry gameRegistry,
+            NobGameRoundJpaRepository nobGameRoundJpaRepository
+    ) {
+        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, nobGameRoundJpaRepository, null);
     }
 
     @Transactional
     public void recordIfFinished(GameRoom room, GameSession session) {
-        if (session == null || !session.isFinished() || session.getPersistedMatchId() != null) {
+        if (session == null) {
             return;
         }
-        Instant finishedAt = session.getFinishedAt() == null ? Instant.now() : session.getFinishedAt();
-        MatchEntity match = matchJpaRepository.save(MatchEntity.completed(
-                session.getGameId(),
-                room.getId().value(),
-                session.getWinnerPlayerId(),
-                session.getResult() == null ? "COMPLETED" : session.getResult(),
-                session.getStartedAt(),
-                finishedAt
-        ));
+        synchronized (session) {
+            if (!session.isFinished() || session.getPersistedMatchId() != null) {
+                return;
+            }
+            Instant finishedAt = session.getFinishedAt() == null ? Instant.now() : session.getFinishedAt();
+            MatchEntity match = matchJpaRepository.save(MatchEntity.completed(
+                    session.getGameId(),
+                    room.getId().value(),
+                    session.getWinnerPlayerId(),
+                    session.getResult() == null ? "COMPLETED" : session.getResult(),
+                    session.getStartedAt(),
+                    finishedAt
+            ));
+            Set<String> winners = winners(session);
+            int seat = 0;
+            for (RoomPlayer player : room.getPlayers()) {
+                boolean winner = winners.contains(player.getPlayerId());
+                PlayerStatistics statistics = playerStatistics(session, player.getPlayerId());
+                matchPlayerJpaRepository.save(MatchPlayerEntity.newPlayer(
+                        match.getId(),
+                        null,
+                        player.getPlayerId(),
+                        player.getDisplayName(),
+                        seat,
+                        winner ? "WIN" : "LOSS",
+                        statistics.score(),
+                        statistics.role(),
+                        statistics.bloodline()
+                ));
+                seat += 1;
+            }
+            persistNobRounds(match.getId(), session);
+            applyElo(match, session, winners);
+            session.markPersisted(match.getId());
+        }
+    }
+
+    private Set<String> winners(GameSession session) {
         Set<String> winners = new LinkedHashSet<>();
         if (session.getState() instanceof NobGameState nob && !nob.getWinnerPlayerIds().isEmpty()) {
             winners.addAll(nob.getWinnerPlayerIds());
         } else if (session.getWinnerPlayerId() != null) {
             winners.add(session.getWinnerPlayerId());
         }
-        int seat = 0;
-        for (RoomPlayer player : room.getPlayers()) {
-            boolean winner = winners.contains(player.getPlayerId());
-            PlayerStatistics statistics = playerStatistics(session, player.getPlayerId());
-            matchPlayerJpaRepository.save(MatchPlayerEntity.newPlayer(
-                    match.getId(),
-                    null,
-                    player.getPlayerId(),
-                    player.getDisplayName(),
-                    seat,
-                    winner ? "WIN" : "LOSS",
-                    statistics.score(),
-                    statistics.role(),
-                    statistics.bloodline()
-            ));
-            seat += 1;
+        return winners;
+    }
+
+    private void applyElo(MatchEntity match, GameSession session, Set<String> winners) {
+        if (eloRatingService == null || match.isEloProcessed()) {
+            return;
         }
-        session.markPersisted(match.getId());
+        List<String> playerIds = session.getConfig().playerIds();
+        EloRatingService.EloMatchResult result;
+        if (session.getState() instanceof NobGameState nob
+                && !nob.getCompletedRounds().isEmpty()) {
+            result = eloRatingService.completeNobMatch(playerIds, winners, nob);
+            Map<String, NobEloChange> finalChanges = new java.util.LinkedHashMap<>();
+            result.changes().forEach((playerId, change) -> finalChanges.put(
+                    playerId,
+                    new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
+            ));
+            nob.recordFinalEloChanges(finalChanges);
+        } else {
+            result = eloRatingService.applyMatch(
+                    session.getGameId(),
+                    playerIds.stream()
+                            .map(playerId -> new EloRatingService.PlayerOutcome(
+                                    playerId,
+                                    winners.contains(playerId)
+                            ))
+                            .toList()
+            );
+        }
+        match.markEloProcessed();
+        matchJpaRepository.save(match);
+    }
+
+    private void persistNobRounds(UUID gameId, GameSession session) {
+        if (nobGameRoundJpaRepository == null || !(session.getState() instanceof NobGameState nob)) {
+            return;
+        }
+        List<NobGameRoundEntity> rounds = nob.getCompletedRounds().stream()
+                .flatMap(round -> round.players().stream()
+                        .map(player -> NobGameRoundEntity.from(gameId, round, player)))
+                .toList();
+        if (!rounds.isEmpty()) {
+            nobGameRoundJpaRepository.saveAll(rounds);
+        }
     }
 
     private static PlayerStatistics playerStatistics(GameSession session, String playerId) {

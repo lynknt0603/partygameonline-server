@@ -24,15 +24,8 @@ class GameCatalogControllerTests {
         mockMvc.perform(get("/api/v1/games"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.hasItems(
-                        "demo-card-game",
                         "night-of-bloodlines"
                 )))
-                .andExpect(jsonPath("$[?(@.id=='demo-card-game')].name").value(
-                        org.hamcrest.Matchers.contains("Demo Card Game")
-                ))
-                .andExpect(jsonPath("$[?(@.id=='demo-card-game')].enabled").value(
-                        org.hamcrest.Matchers.contains(true)
-                ))
                 .andExpect(jsonPath("$[?(@.id=='night-of-bloodlines')].enabled").value(
                         org.hamcrest.Matchers.contains(true)
                 ))
@@ -46,12 +39,12 @@ class GameCatalogControllerTests {
 
     @Test
     void returnsGameById() throws Exception {
-        mockMvc.perform(get("/api/v1/games/demo-card-game"))
+        mockMvc.perform(get("/api/v1/games/night-of-bloodlines"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("demo-card-game"))
-                .andExpect(jsonPath("$.name").value("Demo Card Game"))
-                .andExpect(jsonPath("$.minPlayers").value(2))
-                .andExpect(jsonPath("$.maxPlayers").value(2))
+                .andExpect(jsonPath("$.id").value("night-of-bloodlines"))
+                .andExpect(jsonPath("$.name").value("Night of Bloodlines"))
+                .andExpect(jsonPath("$.minPlayers").value(4))
+                .andExpect(jsonPath("$.maxPlayers").value(11))
                 .andExpect(jsonPath("$.enabled").value(true));
     }
 

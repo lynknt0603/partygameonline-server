@@ -3,6 +3,8 @@ package com.partygameonline.game.runtime;
 import com.partygameonline.game.core.GameConfig;
 import com.partygameonline.game.core.RandomSource;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class GameSession {
@@ -18,6 +20,7 @@ public class GameSession {
     private String result;
     private Instant finishedAt;
     private UUID persistedMatchId;
+    private final Set<Integer> eloProcessedRoundNumbers = new HashSet<>();
 
     public GameSession(
             String roomId,
@@ -85,6 +88,14 @@ public class GameSession {
 
     public void markPersisted(UUID matchId) {
         this.persistedMatchId = matchId;
+    }
+
+    public boolean isEloRoundProcessed(int roundNumber) {
+        return eloProcessedRoundNumbers.contains(roundNumber);
+    }
+
+    public void markEloRoundProcessed(int roundNumber) {
+        eloProcessedRoundNumbers.add(roundNumber);
     }
 
     public void finish(String winnerPlayerId, Instant finishedAt) {

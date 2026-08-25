@@ -63,7 +63,7 @@ class GameRoomTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Linh's Room"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "host",
                 "Linh",
                 5,
@@ -119,7 +119,7 @@ class GameRoomTests {
         return new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Linh's Room"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "host",
                 "Linh",
                 2,

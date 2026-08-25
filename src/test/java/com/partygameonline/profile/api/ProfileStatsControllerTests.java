@@ -44,6 +44,8 @@ class ProfileStatsControllerTests {
                 .andExpect(jsonPath("$.nobStats.totalMatches").value(0))
                 .andExpect(jsonPath("$.nobStats.matchesWon").value(0))
                 .andExpect(jsonPath("$.nobStats.winRate").value(0.0))
+                .andExpect(jsonPath("$.nobStats.elo").value(5000))
+                .andExpect(jsonPath("$.nobStats.highestElo").value(5000))
                 .andExpect(jsonPath("$.nobStats.vampire.matchesPlayed").value(0))
                 .andExpect(jsonPath("$.nobStats.vampire.matchesWon").value(0))
                 .andExpect(jsonPath("$.nobStats.vampire.winRate").value(0.0))

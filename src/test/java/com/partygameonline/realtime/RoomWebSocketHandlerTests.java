@@ -102,7 +102,7 @@ class RoomWebSocketHandlerTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Lobby"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "p1",
                 "Linh",
                 2,
@@ -128,7 +128,7 @@ class RoomWebSocketHandlerTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Lobby"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "p1",
                 "Linh",
                 2,
@@ -158,7 +158,7 @@ class RoomWebSocketHandlerTests {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),
                 new RoomName("Lobby"),
-                "demo-card-game",
+                "night-of-bloodlines",
                 "p1",
                 "Linh",
                 2,

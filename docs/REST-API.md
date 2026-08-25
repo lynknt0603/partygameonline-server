@@ -26,6 +26,7 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 | PUT | `/api/v1/rooms/{roomId}/settings` | session + CSRF | 200 `RoomResponse` (host, WAITING; NOB timers) |
 | GET | `/api/v1/matches` | session | 200 page of `MatchResponse` |
 | GET | `/api/v1/matches/{matchId}` | session | 200 `MatchResponse` |
+| GET | `/api/v1/profile/me/stats` | session | 200 `ProfileStatsResponse` |
 | GET | `/actuator/health` | public | `{ "status": "UP" }` |
 | GET | `/actuator/info` | public | `{ "app": { "name", "phase" } }` |
 
@@ -44,10 +45,10 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 ### GameResponse
 
 ```json
-{ "id": "demo-card-game", "name": "Demo Card Game", "minPlayers": 2, "maxPlayers": 2, "enabled": true }
+{ "id": "night-of-bloodlines", "name": "Night of Bloodlines", "minPlayers": 4, "maxPlayers": 11, "enabled": true }
 ```
 
-`night-of-bloodlines` is listed with `enabled: true`, `minPlayers: 4`, `maxPlayers: 11`.
+The catalogue currently exposes Night of Bloodlines with `enabled: true`.
 
 NOB-specific REST (session + CSRF on POST):
 
@@ -57,12 +58,17 @@ NOB-specific REST (session + CSRF on POST):
 | GET | `/api/v1/games/nob/rooms/{roomId}/snapshot` | 200 viewer `NobView` |
 | POST | `/api/v1/games/nob/rooms/{roomId}/command` | 200 viewer `NobView` |
 
+`NobView.players[]` includes `elo`, `eloDelta`, and `newElo` during a round
+summary (and the final result). `eloDelta` is signed, for example `+55` or
+`-45`. The profile endpoint also returns `nobStats.elo` and
+`nobStats.highestElo`.
+
 Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required players are present.
 
 ### CreateRoomRequest
 
 ```json
-{ "gameId": "demo-card-game", "name": "Linh's Room", "maxPlayers": 2, "visibility": "PUBLIC" }
+{ "gameId": "night-of-bloodlines", "name": "Linh's Room", "maxPlayers": 4, "visibility": "PUBLIC" }
 ```
 
 `visibility` is `PUBLIC` or `PRIVATE` (default PUBLIC). `maxPlayers` optional; must be within the game's min/max.
@@ -79,9 +85,9 @@ Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required p
 {
   "id": "ABCD",
   "name": "Linh's Room",
-  "gameId": "demo-card-game",
+  "gameId": "night-of-bloodlines",
   "hostPlayerId": "...",
-  "maxPlayers": 2,
+  "maxPlayers": 4,
   "visibility": "PUBLIC",
   "status": "WAITING",
   "serverSequence": 0,
@@ -95,7 +101,7 @@ Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required p
 `status`: `WAITING` | `STARTING` | `IN_GAME` | `FINISHED`.  
 Player `state`: `CONNECTED` | `READY` | `DISCONNECTED`.
 
-Starting `demo-card-game` moves the room to `IN_GAME` (engine present).
+Starting Night of Bloodlines moves the room to `IN_GAME` once its minimum player count and ready checks pass.
 
 Room ids are 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`.
 
@@ -108,7 +114,7 @@ Room ids are 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`.
   "content": [
     {
       "id": "...",
-      "gameId": "demo-card-game",
+      "gameId": "night-of-bloodlines",
       "roomId": "ABCD",
       "startedAt": "...",
       "finishedAt": "...",
