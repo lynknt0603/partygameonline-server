@@ -12,6 +12,7 @@ import com.partygameonline.room.infrastructure.RoomLocks;
 import com.partygameonline.room.infrastructure.RoomRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,7 +97,11 @@ public class GameActionDispatcher {
             PlayerContext context = PlayerContext.player(actor.getPlayerId(), actor.getDisplayName());
             AppliedAction applied;
             try {
-                applied = runtimeService.applyAction(session, context, payload);
+                Map<String, Object> actionPayload = payload == null
+                        ? new LinkedHashMap<>()
+                        : new LinkedHashMap<>(payload);
+                actionPayload.putIfAbsent("commandId", requestId);
+                applied = runtimeService.applyAction(session, context, actionPayload);
             } catch (GameActionFormatException ex) {
                 realtimePublisher.actionRejected(
                         roomId.value(),

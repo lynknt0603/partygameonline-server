@@ -65,4 +65,32 @@ Almost every room-scoped message includes `payload.room` (`RoomResponse`). Game 
 
 The `night-of-bloodlines` projection is viewer-specific. Send `NOB_*` action payloads through `GAME_ACTION`; the server validates the current phase, pending decision, and selected cards/targets before publishing the next projected view.
 
+## Not In My Pot! view and actions
+
+The `not-in-my-pot` projection is viewer-specific. Send `PLAY_INGREDIENT`,
+`PLAY_ACTION`, `SELECT_TARGET`, `REORDER_POT_CARDS`, `RETURN_SHOPPING_CARDS`, or
+`DECLARE_POT_READY` through `GAME_ACTION`. Include the engine `commandId` in the
+payload (the dispatcher also uses the envelope `requestId` when it is omitted).
+
+Example:
+
+```json
+{
+  "version": 1,
+  "type": "GAME_ACTION",
+  "requestId": "nimp-command-1",
+  "roomId": "ABCD",
+  "payload": {
+    "type": "PLAY_INGREDIENT",
+    "expectedVersion": 12,
+    "cardId": "NIMP-I-MEAT-04",
+    "declaredType": "VEGETABLE"
+  }
+}
+```
+
+`GAME_EVENTS.payload.events` contains public metadata only. The viewer-specific
+`GAME_EVENTS.payload.view` contains that player's role/hand and any private Slotted
+Spoon inspection. See `docs/NOT-IN-MY-POT.md` for the complete REST/view contract.
+
 Error codes: `contracts/websocket/ERROR-CODES.md`.

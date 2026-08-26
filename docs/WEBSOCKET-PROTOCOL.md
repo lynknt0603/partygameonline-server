@@ -70,6 +70,47 @@ Each room-scoped message includes `payload.room` (`RoomResponse`). Game messages
 
 `night-of-bloodlines` uses the same envelope structure for all `NOB_*` action types and projected views. The projection is viewer-specific: it includes that player's hand, private bloodline observations, pending decisions, and Moon Mark values while exposing only public seats, counts, and reveals to other players.
 
+## Not In My Pot! game view
+
+`not-in-my-pot` uses the same `GAME_ACTION` envelope for these engine commands:
+
+```text
+PLAY_INGREDIENT
+PLAY_ACTION
+SELECT_TARGET
+REORDER_POT_CARDS
+RETURN_SHOPPING_CARDS
+DECLARE_POT_READY
+```
+
+The payload is viewer-specific. `myRole` and `myHand` belong only to the authenticated
+player; live pot cards, other hands, and unrevealed roles are omitted. During
+`SLOTTED_SPOON`, only the acting player receives `privateInspectedCards`. During
+`EMERGENCY_SHOPPING`, only the acting player receives the five-card hand and return
+selection. After `GAME_OVER`, roles and the final pot are revealed.
+
+Example action:
+
+```json
+{
+  "version": 1,
+  "type": "GAME_ACTION",
+  "requestId": "nimp-command-1",
+  "roomId": "ABCD",
+  "payload": {
+    "type": "PLAY_ACTION",
+    "expectedVersion": 12,
+    "cardId": "NIMP-A-OUT_OF_HOUSE-03",
+    "actionType": "OUT_OF_HOUSE",
+    "targetPlayerId": "player-2"
+  }
+}
+```
+
+The server publishes public event metadata in `GAME_EVENTS` and includes each
+recipient's `payload.view`. `commandId` is optional in the payload when the envelope
+`requestId` is stable; the dispatcher uses that request id for engine idempotency.
+
 ## Reconnect
 
 WebSocket close does **not** remove the seat. The player is marked `DISCONNECTED` and a grace timer starts (`app.realtime.disconnect-grace`, default 30s).

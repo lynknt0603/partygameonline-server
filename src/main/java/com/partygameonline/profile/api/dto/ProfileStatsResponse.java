@@ -7,6 +7,7 @@ public record ProfileStatsResponse(
 
     public record Player(
             String playerId,
+            String username,
             String displayName,
             String avatarUrl,
             String joinedAt,

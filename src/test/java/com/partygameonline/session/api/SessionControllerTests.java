@@ -63,6 +63,34 @@ class SessionControllerTests {
     }
 
     @Test
+    void guestEndpointDoesNotDowngradeMemberSession() throws Exception {
+        String username = "member" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("MEMBER"));
+
+        mockMvc.perform(post("/api/v1/session/guest")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Should Not Downgrade\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("MEMBER"))
+                .andExpect(jsonPath("$.displayName").value(username));
+
+        mockMvc.perform(get("/api/v1/session/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kind").value("MEMBER"))
+                .andExpect(jsonPath("$.displayName").value(username));
+    }
+
+    @Test
     void meRequiresSession() throws Exception {
         mockMvc.perform(get("/api/v1/session/me"))
                 .andExpect(status().isUnauthorized())

@@ -25,6 +25,12 @@ public class SessionService {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null
+                && authentication.getPrincipal() instanceof PlayerPrincipal principal
+                && principal.kind() == SessionKind.MEMBER) {
+            return principal;
+        }
         String normalizedName = displayName.trim();
         PlayerPrincipal principal = existingGuest()
                 .map(current -> current.withDisplayName(normalizedName))

@@ -24,7 +24,8 @@ class GameCatalogControllerTests {
         mockMvc.perform(get("/api/v1/games"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.hasItems(
-                        "night-of-bloodlines"
+                        "night-of-bloodlines",
+                        "not-in-my-pot"
                 )))
                 .andExpect(jsonPath("$[?(@.id=='night-of-bloodlines')].enabled").value(
                         org.hamcrest.Matchers.contains(true)
@@ -34,6 +35,12 @@ class GameCatalogControllerTests {
                 ))
                 .andExpect(jsonPath("$[?(@.id=='night-of-bloodlines')].maxPlayers").value(
                         org.hamcrest.Matchers.contains(11)
+                ))
+                .andExpect(jsonPath("$[?(@.id=='not-in-my-pot')].minPlayers").value(
+                        org.hamcrest.Matchers.contains(3)
+                ))
+                .andExpect(jsonPath("$[?(@.id=='not-in-my-pot')].maxPlayers").value(
+                        org.hamcrest.Matchers.contains(8)
                 ));
     }
 
@@ -45,6 +52,17 @@ class GameCatalogControllerTests {
                 .andExpect(jsonPath("$.name").value("Night of Bloodlines"))
                 .andExpect(jsonPath("$.minPlayers").value(4))
                 .andExpect(jsonPath("$.maxPlayers").value(11))
+                .andExpect(jsonPath("$.enabled").value(true));
+    }
+
+    @Test
+    void returnsNotInMyPotMetadata() throws Exception {
+        mockMvc.perform(get("/api/v1/games/not-in-my-pot"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("not-in-my-pot"))
+                .andExpect(jsonPath("$.name").value("Not In My Pot!"))
+                .andExpect(jsonPath("$.minPlayers").value(3))
+                .andExpect(jsonPath("$.maxPlayers").value(8))
                 .andExpect(jsonPath("$.enabled").value(true));
     }
 

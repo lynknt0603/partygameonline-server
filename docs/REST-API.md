@@ -27,7 +27,9 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 | GET | `/api/v1/matches` | session | 200 page of `MatchResponse` |
 | GET | `/api/v1/matches/{matchId}` | session | 200 `MatchResponse` |
 | GET | `/api/v1/profile/me/stats` | session | 200 `ProfileStatsResponse` |
-| GET | `/api/v1/profile/{username}` | session | 200 public `ProfileStatsResponse` |
+| PATCH | `/api/v1/profile/me` | session + CSRF | 200 `SessionResponse` |
+| GET | `/api/v1/profile/{usernameOrPlayerId}` | session | 200 public `ProfileStatsResponse` |
+| GET | `/api/v1/players/search?query=...&limit=20` | session | 200 `PlayerSearchResponse[]` |
 | GET | `/api/v1/rankings?gameId=night-of-bloodlines&sort=highestElo&bloodline=...` | session | 200 `RankingResponse` |
 | GET | `/actuator/health` | public | `{ "status": "UP" }` |
 | GET | `/actuator/info` | public | `{ "app": { "name", "phase" } }` |
@@ -42,7 +44,9 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 
 `currentRoomId` is the live room the player is seated in, or omitted/null when they are not in a room.
 
-`POST /session/guest` body: `{ "displayName": "Linh" }` (`1..32`). A second POST on the same session keeps `playerId` and updates `displayName`.
+`POST /session/guest` body: `{ "displayName": "Linh" }` (`1..32`). A second POST on an existing guest session keeps `playerId` and updates `displayName`. Member sessions are not downgraded to guests.
+
+`PATCH /profile/me` body: `{ "displayName": "Linh Nguyen" }` (`1..32`). This updates the visible name in rooms and keeps the member's username and login session unchanged. `username` is the account login name; `displayName` is the name shown to other players.
 
 ### GameResponse
 
@@ -69,12 +73,35 @@ Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required p
 
 ### RankingResponse
 
-`GET /api/v1/rankings` uses the current NOB ELO state from `user_game_statistic`.
+`GET /api/v1/rankings` uses the selected game's ELO state from
+`user_game_statistic`; omit `gameId` for the default NOB ranking or pass
+`gameId=not-in-my-pot` for Not In My Pot.
 `sort` accepts `highestElo`, `wins`, or `bloodlineWins`; `bloodline` optionally
 filters to `VAMPIRE`, `WEREWOLF`, or `HALFBLOOD`. The response includes the top
 three `podium` entries, paged rows in `entries`, and the current player's `me`
 entry when they are ranked. Member entries also include `username` so the web
 client can link to `/profile/{username}`.
+
+### PlayerSearchResponse
+
+`GET /api/v1/players/search?query=...&limit=20` searches case-insensitively by
+member `username` or `playerId`. Known guest player IDs from completed matches
+are also returned; their `username` is `null`. Queries shorter than two
+characters return an empty array. `limit` defaults to 20 and is capped at 50.
+
+```json
+[
+  {
+    "playerId": "...",
+    "username": "lynknt05",
+    "displayName": "Lynknt05"
+  }
+]
+```
+
+`ProfileStatsResponse.player` includes both `username` (null for guests) and
+`displayName`, so clients can distinguish an account username from the visible
+player name. Public profiles can be opened by username or player ID.
 
 ### CreateRoomRequest
 
@@ -161,3 +188,63 @@ One shape:
 ```
 
 Send `X-Request-Id` to correlate; the server echoes it. Codes: `contracts/rest/ERROR-CODES.md`.
+
+## Not In My Pot!
+
+The game catalogue id/room `gameId` is `not-in-my-pot`; the product game code is
+`NOT_IN_MY_POT`. It supports 3–8 players and is registered in `GET /api/v1/games`.
+
+### Start
+
+Use the existing lobby flow (`POST /api/v1/rooms/{roomId}/start`) or the game-specific
+alias below. The caller must be the room host and all existing ready checks still apply.
+
+```http
+POST /api/v1/games/not-in-my-pot/rooms/{roomId}/start
+```
+
+### Snapshot
+
+```http
+GET /api/v1/games/not-in-my-pot/rooms/{roomId}/snapshot
+```
+
+The response is a viewer-specific `NotInMyPotView`. A player receives `myRole` and
+`myHand`; other hands, unrevealed roles, the draw pile, and the live pot contents are
+never returned. `stateVersion` can be sent back as `expectedVersion` for optimistic
+concurrency checks.
+
+### Command
+
+```http
+POST /api/v1/games/not-in-my-pot/rooms/{roomId}/command
+Content-Type: application/json
+```
+
+```json
+{
+  "commandId": "client-generated-uuid",
+  "type": "PLAY_INGREDIENT",
+  "expectedVersion": 12,
+  "cardId": "NIMP-I-MEAT-04",
+  "declaredType": "VEGETABLE"
+}
+```
+
+Supported command types and fields:
+
+| type | fields |
+| --- | --- |
+| `PLAY_INGREDIENT` | `cardId`, `declaredType` (`VEGETABLE`, `SALT`, `MEAT`) |
+| `PLAY_ACTION` | `cardId`, optional `actionType`, optional `targetPlayerId` |
+| `SELECT_TARGET` | `targetPlayerId` |
+| `REORDER_POT_CARDS` | `cardIds` in `TOP` → `BOTTOM` order |
+| `RETURN_SHOPPING_CARDS` | `cardIds` with exactly two cards, in `TOP` → `SECOND` order |
+| `DECLARE_POT_READY` | no extra fields; only a Vegetarian at the start of their turn |
+
+`commandId` is idempotent. A missing id is generated for REST requests; clients should
+send a stable id when retrying. Rejected gameplay commands return HTTP `409` with the
+standard error body and do not change the game.
+
+For the full view fields, privacy rules, action lifecycle, and WebSocket examples see
+[`docs/NOT-IN-MY-POT.md`](NOT-IN-MY-POT.md).

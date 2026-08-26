@@ -17,8 +17,8 @@ public class PublicProfileController {
         this.profileStatsService = profileStatsService;
     }
 
-    @GetMapping("/{username}")
-    public ProfileStatsResponse profile(@PathVariable String username) {
-        return profileStatsService.getStatsByUsername(username);
+    @GetMapping("/{identifier}")
+    public ProfileStatsResponse profile(@PathVariable("identifier") String identifier) {
+        return profileStatsService.getStatsByUsername(identifier);
     }
 }

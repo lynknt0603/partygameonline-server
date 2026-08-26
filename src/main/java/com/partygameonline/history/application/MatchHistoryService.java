@@ -1,6 +1,10 @@
 package com.partygameonline.history.application;
 
 import com.partygameonline.common.error.ResourceNotFoundException;
+import com.partygameonline.game.core.GameEloChange;
+import com.partygameonline.game.core.GameEloChangeSink;
+import com.partygameonline.game.core.GameOutcomeState;
+import com.partygameonline.game.core.GamePlayerOutcome;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobPlayerState;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
@@ -24,6 +28,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -124,7 +129,9 @@ public class MatchHistoryService {
 
     private Set<String> winners(GameSession session) {
         Set<String> winners = new LinkedHashSet<>();
-        if (session.getState() instanceof NobGameState nob && !nob.getWinnerPlayerIds().isEmpty()) {
+        if (session.getState() instanceof GameOutcomeState outcome && !outcome.winnerPlayerIds().isEmpty()) {
+            winners.addAll(outcome.winnerPlayerIds());
+        } else if (session.getState() instanceof NobGameState nob && !nob.getWinnerPlayerIds().isEmpty()) {
             winners.addAll(nob.getWinnerPlayerIds());
         } else if (session.getWinnerPlayerId() != null) {
             winners.add(session.getWinnerPlayerId());
@@ -158,6 +165,20 @@ public class MatchHistoryService {
                             .toList()
             );
         }
+        if (session.getState() instanceof GameEloChangeSink sink) {
+            Map<String, GameEloChange> changes = new LinkedHashMap<>();
+            result.changes().forEach((playerId, change) -> changes.put(
+                    playerId,
+                    new GameEloChange(
+                            change.playerId(),
+                            change.winner(),
+                            change.oldElo(),
+                            change.eloDelta(),
+                            change.newElo()
+                    )
+            ));
+            sink.recordEloChanges(changes);
+        }
         match.markEloProcessed();
         matchJpaRepository.save(match);
     }
@@ -176,14 +197,20 @@ public class MatchHistoryService {
     }
 
     private static PlayerStatistics playerStatistics(GameSession session, String playerId) {
-        if (!(session.getState() instanceof NobGameState nob)) {
-            return PlayerStatistics.EMPTY;
+        if (session.getState() instanceof GameOutcomeState outcome) {
+            GamePlayerOutcome player = outcome.playerOutcome(playerId);
+            return player == null
+                    ? PlayerStatistics.EMPTY
+                    : new PlayerStatistics(player.score(), player.role(), player.bloodline());
         }
-        return nob.getPlayers().stream()
-                .filter(player -> player.getPlayerId().equals(playerId))
-                .findFirst()
-                .map(MatchHistoryService::toStatistics)
-                .orElse(PlayerStatistics.EMPTY);
+        if (session.getState() instanceof NobGameState nob) {
+            return nob.getPlayers().stream()
+                    .filter(player -> player.getPlayerId().equals(playerId))
+                    .findFirst()
+                    .map(MatchHistoryService::toStatistics)
+                    .orElse(PlayerStatistics.EMPTY);
+        }
+        return PlayerStatistics.EMPTY;
     }
 
     private static PlayerStatistics toStatistics(NobPlayerState player) {

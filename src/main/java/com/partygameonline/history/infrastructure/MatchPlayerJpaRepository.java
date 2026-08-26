@@ -2,6 +2,7 @@ package com.partygameonline.history.infrastructure;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MatchPlayerJpaRepository extends JpaRepository<MatchPlayerEntity, UUID> {
@@ -11,4 +12,9 @@ public interface MatchPlayerJpaRepository extends JpaRepository<MatchPlayerEntit
     List<MatchPlayerEntity> findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(Iterable<UUID> matchIds);
 
     List<MatchPlayerEntity> findByPlayerIdInOrderByCreatedAtDescIdAsc(Iterable<String> playerIds);
+
+    List<MatchPlayerEntity> findByPlayerIdContainingIgnoreCaseOrderByCreatedAtDescIdAsc(
+            String playerId,
+            Pageable pageable
+    );
 }

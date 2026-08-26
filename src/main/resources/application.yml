@@ -50,6 +50,8 @@ games:
       phase-submit-seconds: 30
       decision-seconds: 30
       reaction-seconds: 10
+  not-in-my-pot:
+    timeout-scheduler-enabled: true
 
 app:
   encryption:

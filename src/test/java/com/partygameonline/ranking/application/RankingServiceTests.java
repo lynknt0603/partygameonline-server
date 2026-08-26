@@ -105,6 +105,41 @@ class RankingServiceTests {
         });
     }
 
+    @Test
+    void unfilteredBloodlineRankingUsesTheMostWinsFromOneBloodline() {
+        UserGameStatisticEntity player = statistic("p-mixed", 800);
+        when(statisticRepository.findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(
+                NobGameManifest.ID
+        )).thenReturn(List.of(player));
+        when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of("p-mixed")))
+                .thenReturn(List.of(
+                        MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "p-mixed", "Mixed", 0)
+                ));
+        when(roundRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of("p-mixed")))
+                .thenReturn(List.of(
+                        round("p-mixed", "VAMPIRE", "WIN"),
+                        round("p-mixed", "VAMPIRE", "WIN"),
+                        round("p-mixed", "WEREWOLF", "WIN"),
+                        round("p-mixed", "WEREWOLF", "WIN"),
+                        round("p-mixed", "WEREWOLF", "WIN"),
+                        round("p-mixed", "HALFBLOOD", "WIN")
+                ));
+
+        RankingResponse response = rankingService.getRanking(
+                NobGameManifest.ID,
+                "bloodlineWins",
+                null,
+                0,
+                7,
+                null
+        );
+
+        assertThat(response.podium()).singleElement().satisfies(entry -> {
+            assertThat(entry.favoriteBloodline()).isEqualTo("WEREWOLF");
+            assertThat(entry.bloodlineWins()).isEqualTo(3);
+        });
+    }
+
     private static UserGameStatisticEntity statistic(String playerId, int delta) {
         UserGameStatisticEntity statistic = UserGameStatisticEntity.newStatistic(playerId, NobGameManifest.ID);
         statistic.applyRatingDelta(delta);

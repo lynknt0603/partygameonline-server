@@ -74,8 +74,12 @@ public class ProfileStatsService {
 
     @Transactional(readOnly = true)
     public ProfileStatsResponse getStats(PlayerPrincipal principal) {
+        String username = principal.kind() == SessionKind.MEMBER
+                ? usernameForPlayerId(principal.playerId())
+                : null;
         return buildStats(
                 principal.playerId(),
+                username,
                 principal.displayName(),
                 principal.createdAt(),
                 principal.kind() == SessionKind.MEMBER ? "Member" : "Guest"
@@ -87,23 +91,37 @@ public class ProfileStatsService {
         if (userRepository == null) {
             throw new ApiException("PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found");
         }
-        String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        String identifier = username == null ? "" : username.trim();
+        String normalized = identifier.toLowerCase(Locale.ROOT);
         UserEntity user = userRepository.findByUsername(normalized).orElse(null);
-        if (user != null) {
-            return buildStats(user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), "Member");
+        if (user == null) {
+            user = userRepository.findByUserKey(identifier).orElse(null);
         }
-        if (statisticRepository != null && statisticRepository.findByUserIdAndGameCode(
-                username,
-                NobGameManifest.ID
-        ).isPresent()) {
-            MatchPlayerEntity latest = playerRepository
-                    .findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of(username))
+        if (user != null) {
+            return buildStats(
+                    user.getUserKey(),
+                    user.getUsername(),
+                    user.getDisplayName(),
+                    user.getCreatedAt(),
+                    "Member"
+            );
+        }
+        MatchPlayerEntity latest = playerRepository == null
+                ? null
+                : playerRepository
+                    .findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of(identifier))
                     .stream()
                     .findFirst()
                     .orElse(null);
+        boolean hasStatistic = statisticRepository != null && statisticRepository.findByUserIdAndGameCode(
+                identifier,
+                NobGameManifest.ID
+        ).isPresent();
+        if (latest != null || hasStatistic) {
             return buildStats(
-                    username,
-                    latest == null ? username : latest.getDisplayName(),
+                    identifier,
+                    null,
+                    latest == null ? identifier : latest.getDisplayName(),
                     latest == null ? null : latest.getCreatedAt(),
                     "Guest"
             );
@@ -113,6 +131,7 @@ public class ProfileStatsService {
 
     private ProfileStatsResponse buildStats(
             String playerId,
+            String username,
             String displayName,
             Instant createdAt,
             String role
@@ -164,6 +183,7 @@ public class ProfileStatsService {
         return new ProfileStatsResponse(
                 new ProfileStatsResponse.Player(
                         playerId,
+                        username,
                         displayName,
                         DEFAULT_AVATAR,
                         JOINED_AT_FORMAT.format(joinedAt),
@@ -181,6 +201,15 @@ public class ProfileStatsService {
                         highestElo
                 )
         );
+    }
+
+    private String usernameForPlayerId(String playerId) {
+        if (userRepository == null) {
+            return null;
+        }
+        return userRepository.findByUserKey(playerId)
+                .map(UserEntity::getUsername)
+                .orElse(null);
     }
 
     private List<NobGameRoundEntity> roundRows(List<MatchEntity> matches, String playerId) {

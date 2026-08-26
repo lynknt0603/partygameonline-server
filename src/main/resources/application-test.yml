@@ -11,6 +11,8 @@ spring:
 games:
   nob:
     timeout-scheduler-enabled: false
+  not-in-my-pot:
+    timeout-scheduler-enabled: false
 
 app:
   security:

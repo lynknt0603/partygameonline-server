@@ -82,7 +82,13 @@ public class RankingService {
         Map<String, String> usernames = usernames(playerIds);
         Map<String, BloodlineSummary> bloodlineSummaries = bloodlineSummaries(playerIds);
         List<RankedPlayer> ranked = statistics.stream()
-                .map(statistic -> toRankedPlayer(statistic, displayNames, usernames, bloodlineSummaries))
+                .map(statistic -> toRankedPlayer(
+                        statistic,
+                        displayNames,
+                        usernames,
+                        bloodlineSummaries,
+                        normalizedGame
+                ))
                 .filter(player -> normalizedBloodline == null || player.bloodlineSummary().played(normalizedBloodline) > 0)
                 .sorted(comparator(normalizedSort, normalizedBloodline))
                 .toList();
@@ -157,13 +163,14 @@ public class RankingService {
             UserGameStatisticEntity statistic,
             Map<String, String> displayNames,
             Map<String, String> usernames,
-            Map<String, BloodlineSummary> bloodlineSummaries
+            Map<String, BloodlineSummary> bloodlineSummaries,
+            String gameId
     ) {
         return new RankedPlayer(
                 statistic.getUserId(),
                 usernames.get(statistic.getUserId()),
                 displayNames.getOrDefault(statistic.getUserId(), statistic.getUserId()),
-                statistic.getEloNob(),
+                NobGameManifest.ID.equals(gameId) ? statistic.getEloNob() : statistic.getElo(),
                 statistic.getHighestElo(),
                 statistic.getTotalWin(),
                 statistic.getTotalMatch(),
@@ -261,7 +268,7 @@ public class RankingService {
             if (bloodline != null) {
                 return wins.getOrDefault(bloodline, 0);
             }
-            return wins.values().stream().mapToInt(Integer::intValue).sum();
+            return wins.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         }
 
         private String favorite() {
