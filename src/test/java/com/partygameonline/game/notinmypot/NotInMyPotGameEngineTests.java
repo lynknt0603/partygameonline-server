@@ -61,20 +61,34 @@ class NotInMyPotGameEngineTests {
     }
 
     @Test
-    void playingAnIngredientKeepsTheActualCardHiddenAndStoresOnlyTheDeclaration() {
+    void playingAnIngredientUsesItsActualTypeAndRejectsAMismatchedClientType() {
         NotInMyPotGameState state = newGame(3);
         NotInMyPotPlayerState actor = currentPlayer(state);
-        NotInMyPotCard meat = ingredient("lie-meat", NotInMyPotIngredientType.MEAT);
-        replaceHand(actor, meat, ingredient("lie-salt", NotInMyPotIngredientType.SALT),
-                ingredient("lie-veg", NotInMyPotIngredientType.VEGETABLE));
+        NotInMyPotCard meat = ingredient("fixed-meat", NotInMyPotIngredientType.MEAT);
+        replaceHand(actor, meat, ingredient("fixed-salt", NotInMyPotIngredientType.SALT),
+                ingredient("fixed-veg", NotInMyPotIngredientType.VEGETABLE));
         ensureDrawPile(state, 3);
+
+        NotInMyPotAction mismatched = new NotInMyPotAction(
+                NotInMyPotAction.PLAY_INGREDIENT,
+                "ingredient-mismatch",
+                state.getStateVersion(),
+                meat.cardId(),
+                "VEGETABLE",
+                null,
+                null,
+                List.of()
+        );
+        ValidationResult rejected = engine.validate(state, player(actor), mismatched);
+        assertThat(rejected.valid()).isFalse();
+        assertThat(rejected.errorCode()).isEqualTo("INGREDIENT_TYPE_MISMATCH");
 
         NotInMyPotAction action = new NotInMyPotAction(
                 NotInMyPotAction.PLAY_INGREDIENT,
                 "ingredient-1",
                 state.getStateVersion(),
                 meat.cardId(),
-                "VEGETABLE",
+                "MEAT",
                 null,
                 null,
                 List.of()
@@ -86,7 +100,7 @@ class NotInMyPotGameEngineTests {
         assertThat(events).anySatisfy(event -> {
             var typed = (com.partygameonline.game.notinmypot.domain.NotInMyPotEvent) event;
             if ("INGREDIENT_DECLARED".equals(typed.type())) {
-                assertThat(typed.payload()).containsEntry("declaredType", "VEGETABLE");
+                assertThat(typed.payload()).containsEntry("declaredType", "MEAT");
                 assertThat(typed.payload()).doesNotContainKey("actualType");
             }
         });
@@ -427,7 +441,7 @@ class NotInMyPotGameEngineTests {
                 "same-command",
                 state.getStateVersion(),
                 card.cardId(),
-                "SALT",
+                card.ingredientType().name(),
                 null,
                 null,
                 List.of()

@@ -171,9 +171,16 @@ public final class NotInMyPotRulesEngine {
         if (card.category() != NotInMyPotCardCategory.INGREDIENT) {
             return ValidationResult.reject("WRONG_CARD_CATEGORY", "Choose an ingredient card");
         }
-        return NotInMyPotIngredientType.parse(action.declaredType()) == null
-                ? ValidationResult.reject("INVALID_DECLARATION", "Declare VEGETABLE, SALT, or MEAT")
-                : ValidationResult.ok();
+        if (action.declaredType() == null || action.declaredType().isBlank()) {
+            return ValidationResult.ok();
+        }
+        NotInMyPotIngredientType requestedType = NotInMyPotIngredientType.parse(action.declaredType());
+        if (requestedType == null) {
+            return ValidationResult.reject("INVALID_INGREDIENT_TYPE", "Ingredient type must be VEGETABLE, SALT, or MEAT");
+        }
+        return requestedType == card.ingredientType()
+                ? ValidationResult.ok()
+                : ValidationResult.reject("INGREDIENT_TYPE_MISMATCH", "The ingredient type does not match the card");
     }
 
     private static ValidationResult validateAction(
@@ -329,7 +336,7 @@ public final class NotInMyPotRulesEngine {
         state.setTurnHasActed(true);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", actorId);
-        payload.put("declaredType", NotInMyPotIngredientType.parse(action.declaredType()).name());
+        payload.put("declaredType", card.ingredientType().name());
         payload.put("potCardCount", state.getPot().size());
         addEvent(state, events, "INGREDIENT_DECLARED", payload);
         finishRegularTurn(state, actor, events);
