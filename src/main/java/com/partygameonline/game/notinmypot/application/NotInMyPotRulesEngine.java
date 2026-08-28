@@ -336,7 +336,6 @@ public final class NotInMyPotRulesEngine {
         state.setTurnHasActed(true);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", actorId);
-        payload.put("declaredType", card.ingredientType().name());
         payload.put("potCardCount", state.getPot().size());
         addEvent(state, events, "INGREDIENT_DECLARED", payload);
         finishRegularTurn(state, actor, events);

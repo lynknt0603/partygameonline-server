@@ -61,7 +61,7 @@ class NotInMyPotGameEngineTests {
     }
 
     @Test
-    void playingAnIngredientUsesItsActualTypeAndRejectsAMismatchedClientType() {
+    void playingAnIngredientUsesItsActualTypeWithoutPublishingItAndRejectsAMismatchedClientType() {
         NotInMyPotGameState state = newGame(3);
         NotInMyPotPlayerState actor = currentPlayer(state);
         NotInMyPotCard meat = ingredient("fixed-meat", NotInMyPotIngredientType.MEAT);
@@ -100,8 +100,9 @@ class NotInMyPotGameEngineTests {
         assertThat(events).anySatisfy(event -> {
             var typed = (com.partygameonline.game.notinmypot.domain.NotInMyPotEvent) event;
             if ("INGREDIENT_DECLARED".equals(typed.type())) {
-                assertThat(typed.payload()).containsEntry("declaredType", "MEAT");
-                assertThat(typed.payload()).doesNotContainKey("actualType");
+                assertThat(typed.payload())
+                        .containsEntry("playerId", actor.getPlayerId())
+                        .doesNotContainKeys("declaredType", "actualType");
             }
         });
         NotInMyPotView actorView = projector.project(state, player(actor));
