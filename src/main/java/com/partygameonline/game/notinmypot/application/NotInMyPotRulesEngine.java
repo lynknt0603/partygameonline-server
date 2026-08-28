@@ -751,7 +751,7 @@ public final class NotInMyPotRulesEngine {
                 .filter(player -> player.getRole() == NotInMyPotRole.MEAT_EATER)
                 .count();
         if (activeMeatEaters == 0) {
-            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED", true);
+            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED", false);
             return true;
         }
         if (activeVegetarians == activeMeatEaters) {

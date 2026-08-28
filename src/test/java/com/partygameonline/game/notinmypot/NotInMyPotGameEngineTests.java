@@ -522,6 +522,16 @@ class NotInMyPotGameEngineTests {
                 List.of()
         ), new SeededRandomSource(19));
         assertThat(meatGoneState.getWinnerFaction()).isEqualTo(NotInMyPotRole.VEGETARIAN);
+        assertThat(meatGoneState.getFinalPotScore()).isNull();
+        assertThat(projector.project(meatGoneState, player(vegetarianActor)).finalPot()).isEmpty();
+        assertThat(meatGoneState.getPublicEvents()).noneMatch(event -> "POT_REVEALED".equals(event.type()));
+        assertThat(meatGoneState.getPublicEvents()).filteredOn(event -> "GAME_ENDED".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.payload()).containsEntry("reason", "ALL_MEAT_EATERS_EXPELLED");
+                    assertThat(event.payload()).containsEntry("potRevealed", false);
+                    assertThat(event.payload()).doesNotContainKey("finalScore");
+                });
     }
 
     @Test
