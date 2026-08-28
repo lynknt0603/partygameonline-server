@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
@@ -40,9 +41,7 @@ class RankingServiceTests {
     void ranksByHighestEloAndKeepsCurrentPlayerRank() {
         UserGameStatisticEntity first = statistic("p-first", 900);
         UserGameStatisticEntity second = statistic("p-second", 500);
-        when(statisticRepository.findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(
-                NobGameManifest.ID
-        )).thenReturn(List.of(first, second));
+        when(statisticRepository.findByGameCode(NobGameManifest.ID)).thenReturn(List.of(first, second));
         when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of("p-first", "p-second")))
                 .thenReturn(List.of(
                         MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "p-first", "NightHowl", 0),
@@ -74,9 +73,7 @@ class RankingServiceTests {
     void bloodlineFilterUsesRoundSnapshots() {
         UserGameStatisticEntity vampire = statistic("p-vampire", 400);
         UserGameStatisticEntity werewolf = statistic("p-werewolf", 800);
-        when(statisticRepository.findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(
-                NobGameManifest.ID
-        )).thenReturn(List.of(vampire, werewolf));
+        when(statisticRepository.findByGameCode(NobGameManifest.ID)).thenReturn(List.of(vampire, werewolf));
         when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of("p-vampire", "p-werewolf")))
                 .thenReturn(List.of(
                         MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "p-vampire", "Vamp", 0),
@@ -108,9 +105,7 @@ class RankingServiceTests {
     @Test
     void unfilteredBloodlineRankingUsesTheMostWinsFromOneBloodline() {
         UserGameStatisticEntity player = statistic("p-mixed", 800);
-        when(statisticRepository.findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(
-                NobGameManifest.ID
-        )).thenReturn(List.of(player));
+        when(statisticRepository.findByGameCode(NobGameManifest.ID)).thenReturn(List.of(player));
         when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(List.of("p-mixed")))
                 .thenReturn(List.of(
                         MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "p-mixed", "Mixed", 0)
@@ -138,6 +133,46 @@ class RankingServiceTests {
             assertThat(entry.favoriteBloodline()).isEqualTo("WEREWOLF");
             assertThat(entry.bloodlineWins()).isEqualTo(3);
         });
+    }
+
+    @Test
+    void notInMyPotRankingUsesItsOwnEloAndDoesNotLoadNobBloodlines() {
+        UserGameStatisticEntity first = UserGameStatisticEntity.newStatistic(
+                "pot-first",
+                NotInMyPotGameManifest.ID
+        );
+        first.applyRatingDelta(350);
+        UserGameStatisticEntity second = UserGameStatisticEntity.newStatistic(
+                "pot-second",
+                NotInMyPotGameManifest.ID
+        );
+        second.applyRatingDelta(100);
+        when(statisticRepository.findByGameCode(NotInMyPotGameManifest.ID))
+                .thenReturn(List.of(second, first));
+        when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(
+                List.of("pot-second", "pot-first")
+        )).thenReturn(List.of(
+                MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "pot-first", "Chef One", 0),
+                MatchPlayerEntity.newPlayer(UUID.randomUUID(), null, "pot-second", "Chef Two", 1)
+        ));
+
+        RankingResponse response = rankingService.getRanking(
+                NotInMyPotGameManifest.ID,
+                "bloodlineWins",
+                "VAMPIRE",
+                0,
+                7,
+                null
+        );
+
+        assertThat(response.gameId()).isEqualTo(NotInMyPotGameManifest.ID);
+        assertThat(response.sort()).isEqualTo("highestElo");
+        assertThat(response.bloodline()).isNull();
+        assertThat(response.podium()).extracting(RankingResponse.RankingEntry::displayName)
+                .containsExactly("Chef One", "Chef Two");
+        assertThat(response.podium().getFirst().elo()).isEqualTo(5350);
+        assertThat(response.podium().getFirst().highestElo()).isEqualTo(5350);
+        assertThat(response.podium().getFirst().favoriteBloodline()).isNull();
     }
 
     private static UserGameStatisticEntity statistic(String playerId, int delta) {

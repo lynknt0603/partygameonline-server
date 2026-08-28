@@ -10,9 +10,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Per-player, per-game rating state.  {@code elo} is the generic rating that
- * future games can use; {@code eloNob} is kept as an explicit NOB column so a
- * game-specific migration can be added without changing the user table.
+ * Per-player, per-game rating state. {@code elo} remains the generic/fallback
+ * value, while supported ranked games keep explicit columns so one game's
+ * rating can never overwrite another game's rating.
  */
 @Entity
 @Table(
@@ -25,6 +25,8 @@ import java.util.UUID;
 public class UserGameStatisticEntity {
 
     public static final int DEFAULT_ELO = 5000;
+    public static final String NOB_GAME = "night-of-bloodlines";
+    public static final String NOT_IN_MY_POT_GAME = "not-in-my-pot";
 
     @Id
     @Column(nullable = false, updatable = false)
@@ -42,8 +44,14 @@ public class UserGameStatisticEntity {
     @Column(name = "elo_nob", nullable = false)
     private int eloNob;
 
+    @Column(name = "elo_not_in_my_pot", nullable = false)
+    private int eloNotInMyPot;
+
     @Column(name = "highest_elo", nullable = false)
     private int highestElo;
+
+    @Column(name = "highest_elo_not_in_my_pot", nullable = false)
+    private int highestEloNotInMyPot;
 
     @Column(name = "total_match", nullable = false)
     private int totalMatch;
@@ -71,7 +79,9 @@ public class UserGameStatisticEntity {
         this.gameCode = gameCode;
         this.elo = DEFAULT_ELO;
         this.eloNob = DEFAULT_ELO;
+        this.eloNotInMyPot = DEFAULT_ELO;
         this.highestElo = DEFAULT_ELO;
+        this.highestEloNotInMyPot = DEFAULT_ELO;
         this.totalMatch = 0;
         this.totalWin = 0;
         this.version = 0;
@@ -90,11 +100,15 @@ public class UserGameStatisticEntity {
     }
 
     public void applyRatingDelta(int delta) {
-        this.elo = Math.max(0, this.elo + delta);
-        if ("night-of-bloodlines".equals(gameCode)) {
-            this.eloNob = this.elo;
+        int nextElo = Math.max(0, getEloForGame() + delta);
+        this.elo = nextElo;
+        if (NOB_GAME.equals(gameCode)) {
+            this.eloNob = nextElo;
+        } else if (NOT_IN_MY_POT_GAME.equals(gameCode)) {
+            this.eloNotInMyPot = nextElo;
+            this.highestEloNotInMyPot = Math.max(this.highestEloNotInMyPot, nextElo);
         }
-        this.highestElo = Math.max(this.highestElo, this.elo);
+        this.highestElo = Math.max(this.highestElo, nextElo);
         this.updatedAt = Instant.now();
     }
 
@@ -126,8 +140,28 @@ public class UserGameStatisticEntity {
         return eloNob;
     }
 
+    public int getEloNotInMyPot() {
+        return eloNotInMyPot;
+    }
+
     public int getHighestElo() {
         return highestElo;
+    }
+
+    public int getHighestEloNotInMyPot() {
+        return highestEloNotInMyPot;
+    }
+
+    public int getEloForGame() {
+        return switch (gameCode) {
+            case NOB_GAME -> eloNob;
+            case NOT_IN_MY_POT_GAME -> eloNotInMyPot;
+            default -> elo;
+        };
+    }
+
+    public int getHighestEloForGame() {
+        return NOT_IN_MY_POT_GAME.equals(gameCode) ? highestEloNotInMyPot : highestElo;
     }
 
     public int getTotalMatch() {

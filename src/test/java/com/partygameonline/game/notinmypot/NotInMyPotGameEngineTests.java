@@ -362,6 +362,7 @@ class NotInMyPotGameEngineTests {
         assertThat(potState.isFinished()).isTrue();
         assertThat(potState.getWinnerFaction()).isEqualTo(NotInMyPotRole.VEGETARIAN);
         assertThat(potState.getFinalPotScore()).isEqualTo(NotInMyPotRules.targetScore(4));
+        assertThat(projector.project(potState, player(vegetarian)).finalPot()).isNotEmpty();
         assertThat(potState.getPublicRoles()).hasSize(4);
         assertThat(potState.getWinnerPlayerIds()).containsExactlyElementsOf(
                 potState.getPlayers().stream()
@@ -391,8 +392,18 @@ class NotInMyPotGameEngineTests {
         engine.apply(emptyDrawState, player(current), playLast, new SeededRandomSource(15));
         assertThat(emptyDrawState.isFinished()).isTrue();
         assertThat(emptyDrawState.getWinnerFaction()).isEqualTo(NotInMyPotRole.MEAT_EATER);
+        assertThat(emptyDrawState.getFinalPotScore()).isNull();
+        assertThat(emptyDrawState.playerOutcome(current.getPlayerId()).score()).isNull();
+        assertThat(projector.project(emptyDrawState, player(current)).finalPot()).isEmpty();
+        assertThat(emptyDrawState.getPublicEvents()).noneMatch(event -> "POT_REVEALED".equals(event.type()));
         assertThat(emptyDrawState.getPublicEvents()).anyMatch(event ->
                 "DRAW_PILE_EMPTY".equals(event.payload().get("reason")));
+        assertThat(emptyDrawState.getPublicEvents()).filteredOn(event -> "GAME_ENDED".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.payload()).containsEntry("potRevealed", false);
+                    assertThat(event.payload()).doesNotContainKey("finalScore");
+                });
     }
 
     @Test
@@ -479,6 +490,15 @@ class NotInMyPotGameEngineTests {
                 List.of()
         ), new SeededRandomSource(18));
         assertThat(equalState.getWinnerFaction()).isEqualTo(NotInMyPotRole.MEAT_EATER);
+        assertThat(equalState.getFinalPotScore()).isNull();
+        assertThat(projector.project(equalState, player(equalActor)).finalPot()).isEmpty();
+        assertThat(equalState.getPublicEvents()).filteredOn(event -> "GAME_ENDED".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.payload()).containsEntry("reason", "FACTIONS_EQUAL");
+                    assertThat(event.payload()).containsEntry("potRevealed", false);
+                    assertThat(event.payload()).doesNotContainKey("finalScore");
+                });
 
         NotInMyPotGameState meatGoneState = newGame(4);
         NotInMyPotPlayerState vegetarianActor = currentPlayer(meatGoneState);

@@ -90,7 +90,7 @@ public class NotInMyPotGameProjector implements GameStateProjector<NotInMyPotGam
                 && playerId.equals(pending.actorPlayerId())
                 ? pending.inspectedCards().stream().map(NotInMyPotGameProjector::cardView).toList()
                 : List.of();
-        List<NotInMyPotCardView> finalPot = state.isFinished()
+        List<NotInMyPotCardView> finalPot = state.isFinished() && state.getFinalPotScore() != null
                 ? state.getPotBottomToTop().stream().map(NotInMyPotGameProjector::cardView).toList()
                 : List.of();
         Map<String, String> publicRoleView = new LinkedHashMap<>();

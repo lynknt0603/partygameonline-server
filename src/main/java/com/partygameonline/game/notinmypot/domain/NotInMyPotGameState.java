@@ -275,13 +275,17 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     }
 
     public void finish(NotInMyPotRole winnerFaction) {
+        finish(winnerFaction, true);
+    }
+
+    public void finish(NotInMyPotRole winnerFaction, boolean calculateFinalPotScore) {
         if (finished) {
             return;
         }
         this.finished = true;
         this.phase = NotInMyPotPhase.GAME_OVER;
         this.winnerFaction = winnerFaction;
-        this.finalPotScore = scorePot();
+        this.finalPotScore = calculateFinalPotScore ? scorePot() : null;
         this.pendingAction = null;
         this.currentPlayerId = null;
         this.turnHasActed = false;

@@ -43,4 +43,26 @@ class RankingControllerTests {
                 .andExpect(jsonPath("$.entries.length()").value(0))
                 .andExpect(jsonPath("$.totalPlayers").value(0));
     }
+
+    @Test
+    void notInMyPotHasASeparateRankingResponse() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        mockMvc.perform(post("/api/v1/session/guest")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Pot Ranking Guest\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/rankings")
+                        .session(session)
+                        .param("gameId", "not-in-my-pot")
+                        .param("sort", "highestElo"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gameId").value("not-in-my-pot"))
+                .andExpect(jsonPath("$.sort").value("highestElo"))
+                .andExpect(jsonPath("$.bloodline").doesNotExist())
+                .andExpect(jsonPath("$.podium").isArray())
+                .andExpect(jsonPath("$.entries").isArray());
+    }
 }

@@ -633,7 +633,7 @@ public final class NotInMyPotRulesEngine {
                 "score", score,
                 "targetScore", NotInMyPotRules.targetScore(state.getPlayers().size())
         ));
-        finishGame(state, winner, events, "POT_READY_DECLARED");
+        finishGame(state, winner, events, "POT_READY_DECLARED", true);
     }
 
     private static void beginPending(
@@ -752,15 +752,15 @@ public final class NotInMyPotRulesEngine {
                 .filter(player -> player.getRole() == NotInMyPotRole.MEAT_EATER)
                 .count();
         if (activeMeatEaters == 0) {
-            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED");
+            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED", true);
             return true;
         }
         if (activeVegetarians == activeMeatEaters) {
-            finishGame(state, NotInMyPotRole.MEAT_EATER, events, "FACTIONS_EQUAL");
+            finishGame(state, NotInMyPotRole.MEAT_EATER, events, "FACTIONS_EQUAL", false);
             return true;
         }
         if (state.getDrawPile().isEmpty()) {
-            finishGame(state, NotInMyPotRole.MEAT_EATER, events, "DRAW_PILE_EMPTY");
+            finishGame(state, NotInMyPotRole.MEAT_EATER, events, "DRAW_PILE_EMPTY", false);
             return true;
         }
         return false;
@@ -770,19 +770,23 @@ public final class NotInMyPotRulesEngine {
             NotInMyPotGameState state,
             NotInMyPotRole winner,
             List<NotInMyPotEvent> events,
-            String reason
+            String reason,
+            boolean revealPot
     ) {
         if (state.isFinished()) {
             return;
         }
-        state.finish(winner);
-        addEvent(state, events, "GAME_ENDED", Map.of(
-                "winnerFaction", winner.name(),
-                "winnerPlayerIds", state.getWinnerPlayerIds(),
-                "finalScore", state.getFinalPotScore(),
-                "targetScore", NotInMyPotRules.targetScore(state.getPlayers().size()),
-                "reason", reason
-        ));
+        state.finish(winner, revealPot);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("winnerFaction", winner.name());
+        payload.put("winnerPlayerIds", state.getWinnerPlayerIds());
+        payload.put("targetScore", NotInMyPotRules.targetScore(state.getPlayers().size()));
+        payload.put("reason", reason);
+        payload.put("potRevealed", revealPot);
+        if (state.getFinalPotScore() != null) {
+            payload.put("finalScore", state.getFinalPotScore());
+        }
+        addEvent(state, events, "GAME_ENDED", payload);
     }
 
     private static void applyTimeout(

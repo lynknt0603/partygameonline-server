@@ -10,6 +10,7 @@ import com.partygameonline.game.nob.domain.NobEloChange;
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.domain.NobPlayerState;
 import com.partygameonline.game.nob.domain.NobRoundResult;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +75,34 @@ class EloRatingServiceTests {
         assertThat(statistic.getElo()).isZero();
         assertThat(statistic.getEloNob()).isZero();
         assertThat(statistic.getHighestElo()).isEqualTo(5000);
+    }
+
+    @Test
+    void notInMyPotUsesItsOwnEloColumn() {
+        UserGameStatisticEntity winner = UserGameStatisticEntity.newStatistic(
+                "pot-winner",
+                NotInMyPotGameManifest.ID
+        );
+        UserGameStatisticEntity loser = UserGameStatisticEntity.newStatistic(
+                "pot-loser",
+                NotInMyPotGameManifest.ID
+        );
+        when(repository.findByUserIdAndGameCodeForUpdate("pot-winner", NotInMyPotGameManifest.ID))
+                .thenReturn(Optional.of(winner));
+        when(repository.findByUserIdAndGameCodeForUpdate("pot-loser", NotInMyPotGameManifest.ID))
+                .thenReturn(Optional.of(loser));
+
+        EloRatingService.EloMatchResult result = service.completeNotInMyPotMatch(
+                List.of("pot-winner", "pot-loser"),
+                Set.of("pot-winner")
+        );
+
+        assertThat(winner.getEloNotInMyPot()).isEqualTo(5050);
+        assertThat(winner.getHighestEloNotInMyPot()).isEqualTo(5050);
+        assertThat(loser.getEloNotInMyPot()).isEqualTo(4950);
+        assertThat(winner.getEloNob()).isEqualTo(UserGameStatisticEntity.DEFAULT_ELO);
+        assertThat(loser.getEloNob()).isEqualTo(UserGameStatisticEntity.DEFAULT_ELO);
+        assertThat(result.changes().get("pot-winner").newElo()).isEqualTo(5050);
     }
 
     @Test

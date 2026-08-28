@@ -1,6 +1,7 @@
 package com.partygameonline.ranking.application;
 
 import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import java.util.ArrayList;
@@ -79,7 +80,7 @@ public class EloRatingService {
             int rating = simulatedRatings != null && simulatedRatings.containsKey(outcome.playerId())
                     ? simulatedRatings.get(outcome.playerId())
                     : statisticRepository.findByUserIdAndGameCode(outcome.playerId(), gameCode)
-                            .map(UserGameStatisticEntity::getElo)
+                            .map(UserGameStatisticEntity::getEloForGame)
                             .orElse(DEFAULT_ELO);
             ratings.put(outcome.playerId(), Math.max(MIN_ELO, rating));
         }
@@ -208,6 +209,19 @@ public class EloRatingService {
         return applyRatings(gameCode, outcomes, true);
     }
 
+    /** Completes a Not In My Pot match against its own persisted rating column. */
+    @Transactional
+    public EloMatchResult completeNotInMyPotMatch(List<String> playerIds, Set<String> winners) {
+        Set<String> winnerIds = winners == null ? Set.of() : Set.copyOf(winners);
+        return applyRatings(
+                NotInMyPotGameManifest.ID,
+                distinctIds(playerIds).stream()
+                        .map(playerId -> new PlayerOutcome(playerId, winnerIds.contains(playerId)))
+                        .toList(),
+                true
+        );
+    }
+
     @Transactional
     public EloMatchResult completeNobMatch(
             List<String> playerIds,
@@ -233,7 +247,7 @@ public class EloRatingService {
         }
         Map<String, Integer> targetRatings = new LinkedHashMap<>();
         for (String playerId : distinctPlayerIds) {
-            int target = stats.get(playerId).getElo();
+            int target = stats.get(playerId).getEloForGame();
             for (var round : state.getCompletedRounds()) {
                 for (var snapshot : round.players()) {
                     if (playerId.equals(snapshot.playerId())) {
@@ -246,7 +260,7 @@ public class EloRatingService {
         Map<String, EloChange> changes = new LinkedHashMap<>();
         for (String playerId : distinctPlayerIds) {
             UserGameStatisticEntity statistic = stats.get(playerId);
-            int oldElo = statistic.getElo();
+            int oldElo = statistic.getEloForGame();
             int finalElo = targetRatings.getOrDefault(playerId, oldElo);
             if (finalElo != oldElo) {
                 statistic.applyRatingDelta(finalElo - oldElo);
@@ -257,8 +271,8 @@ public class EloRatingService {
                     playerId,
                     winnerIds.contains(playerId),
                     aggregateOldElo,
-                    statistic.getElo() - aggregateOldElo,
-                    statistic.getElo()
+                    statistic.getEloForGame() - aggregateOldElo,
+                    statistic.getEloForGame()
             ));
         }
         statisticRepository.saveAll(stats.values());
@@ -287,7 +301,7 @@ public class EloRatingService {
         Map<String, EloChange> changes = new LinkedHashMap<>();
         for (PlayerOutcome outcome : outcomes) {
             UserGameStatisticEntity statistic = stats.get(outcome.playerId());
-            int oldElo = statistic.getElo();
+            int oldElo = statistic.getEloForGame();
             int delta = calculateEloDelta(oldElo, roomAverage, outcome.winner());
             statistic.applyRatingDelta(delta);
             if (completeMatch) {
@@ -297,8 +311,8 @@ public class EloRatingService {
                     outcome.playerId(),
                     outcome.winner(),
                     oldElo,
-                    statistic.getElo() - oldElo,
-                    statistic.getElo()
+                    statistic.getEloForGame() - oldElo,
+                    statistic.getEloForGame()
             ));
         }
         statisticRepository.saveAll(stats.values());
@@ -325,7 +339,7 @@ public class EloRatingService {
 
     private static double roomAverage(Map<String, UserGameStatisticEntity> stats) {
         return stats.values().stream()
-                .mapToInt(UserGameStatisticEntity::getElo)
+                .mapToInt(UserGameStatisticEntity::getEloForGame)
                 .average()
                 .orElse(DEFAULT_ELO);
     }

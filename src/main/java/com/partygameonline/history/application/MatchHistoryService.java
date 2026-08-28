@@ -6,6 +6,7 @@ import com.partygameonline.game.core.GameEloChangeSink;
 import com.partygameonline.game.core.GameOutcomeState;
 import com.partygameonline.game.core.GamePlayerOutcome;
 import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
 import com.partygameonline.game.nob.domain.NobPlayerState;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
@@ -154,6 +155,8 @@ public class MatchHistoryService {
                     new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
             ));
             nob.recordFinalEloChanges(finalChanges);
+        } else if (session.getState() instanceof NotInMyPotGameState) {
+            result = eloRatingService.completeNotInMyPotMatch(playerIds, winners);
         } else {
             result = eloRatingService.applyMatch(
                     session.getGameId(),

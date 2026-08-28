@@ -13,9 +13,7 @@ public interface UserGameStatisticJpaRepository extends JpaRepository<UserGameSt
 
     Optional<UserGameStatisticEntity> findByUserIdAndGameCode(String userId, String gameCode);
 
-    List<UserGameStatisticEntity> findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(
-            String gameCode
-    );
+    List<UserGameStatisticEntity> findByGameCode(String gameCode);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

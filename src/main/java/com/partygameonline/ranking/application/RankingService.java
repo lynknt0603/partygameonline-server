@@ -55,13 +55,16 @@ public class RankingService {
             PlayerPrincipal principal
     ) {
         String normalizedGame = gameId == null || gameId.isBlank() ? DEFAULT_GAME : gameId.trim();
+        boolean nobRanking = NobGameManifest.ID.equals(normalizedGame);
         String normalizedSort = normalizeSort(sort);
-        String normalizedBloodline = normalizeBloodline(bloodline);
+        if (!nobRanking && "bloodlineWins".equals(normalizedSort)) {
+            normalizedSort = DEFAULT_SORT;
+        }
+        String normalizedBloodline = nobRanking ? normalizeBloodline(bloodline) : null;
         int pageNumber = page == null || page < 0 ? 0 : page;
         int pageSize = size == null ? DEFAULT_SIZE : Math.min(Math.max(size, 1), MAX_SIZE);
 
-        List<UserGameStatisticEntity> statistics = statisticRepository
-                .findByGameCodeOrderByHighestEloDescEloNobDescTotalWinDescUserIdAsc(normalizedGame);
+        List<UserGameStatisticEntity> statistics = statisticRepository.findByGameCode(normalizedGame);
         if (statistics.isEmpty()) {
             return new RankingResponse(
                     normalizedGame,
@@ -80,7 +83,9 @@ public class RankingService {
         List<String> playerIds = statistics.stream().map(UserGameStatisticEntity::getUserId).toList();
         Map<String, String> displayNames = displayNames(playerIds);
         Map<String, String> usernames = usernames(playerIds);
-        Map<String, BloodlineSummary> bloodlineSummaries = bloodlineSummaries(playerIds);
+        Map<String, BloodlineSummary> bloodlineSummaries = nobRanking
+                ? bloodlineSummaries(playerIds)
+                : Map.of();
         List<RankedPlayer> ranked = statistics.stream()
                 .map(statistic -> toRankedPlayer(
                         statistic,
@@ -170,8 +175,8 @@ public class RankingService {
                 statistic.getUserId(),
                 usernames.get(statistic.getUserId()),
                 displayNames.getOrDefault(statistic.getUserId(), statistic.getUserId()),
-                NobGameManifest.ID.equals(gameId) ? statistic.getEloNob() : statistic.getElo(),
-                statistic.getHighestElo(),
+                statistic.getEloForGame(),
+                statistic.getHighestEloForGame(),
                 statistic.getTotalWin(),
                 statistic.getTotalMatch(),
                 bloodlineSummaries.getOrDefault(statistic.getUserId(), new BloodlineSummary())
