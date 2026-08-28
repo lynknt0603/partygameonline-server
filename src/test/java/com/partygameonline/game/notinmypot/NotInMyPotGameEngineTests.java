@@ -61,7 +61,7 @@ class NotInMyPotGameEngineTests {
     }
 
     @Test
-    void playingAnIngredientUsesItsActualTypeAndRejectsAMismatchedClientType() {
+    void playingAnIngredientUsesItsActualTypeWithoutPublishingItAndRejectsAMismatchedClientType() {
         NotInMyPotGameState state = newGame(3);
         NotInMyPotPlayerState actor = currentPlayer(state);
         NotInMyPotCard meat = ingredient("fixed-meat", NotInMyPotIngredientType.MEAT);
@@ -100,8 +100,9 @@ class NotInMyPotGameEngineTests {
         assertThat(events).anySatisfy(event -> {
             var typed = (com.partygameonline.game.notinmypot.domain.NotInMyPotEvent) event;
             if ("INGREDIENT_DECLARED".equals(typed.type())) {
-                assertThat(typed.payload()).containsEntry("declaredType", "MEAT");
-                assertThat(typed.payload()).doesNotContainKey("actualType");
+                assertThat(typed.payload())
+                        .containsEntry("playerId", actor.getPlayerId())
+                        .doesNotContainKeys("declaredType", "actualType");
             }
         });
         NotInMyPotView actorView = projector.project(state, player(actor));
@@ -521,6 +522,16 @@ class NotInMyPotGameEngineTests {
                 List.of()
         ), new SeededRandomSource(19));
         assertThat(meatGoneState.getWinnerFaction()).isEqualTo(NotInMyPotRole.VEGETARIAN);
+        assertThat(meatGoneState.getFinalPotScore()).isNull();
+        assertThat(projector.project(meatGoneState, player(vegetarianActor)).finalPot()).isEmpty();
+        assertThat(meatGoneState.getPublicEvents()).noneMatch(event -> "POT_REVEALED".equals(event.type()));
+        assertThat(meatGoneState.getPublicEvents()).filteredOn(event -> "GAME_ENDED".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.payload()).containsEntry("reason", "ALL_MEAT_EATERS_EXPELLED");
+                    assertThat(event.payload()).containsEntry("potRevealed", false);
+                    assertThat(event.payload()).doesNotContainKey("finalScore");
+                });
     }
 
     @Test

@@ -336,7 +336,6 @@ public final class NotInMyPotRulesEngine {
         state.setTurnHasActed(true);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", actorId);
-        payload.put("declaredType", card.ingredientType().name());
         payload.put("potCardCount", state.getPot().size());
         addEvent(state, events, "INGREDIENT_DECLARED", payload);
         finishRegularTurn(state, actor, events);
@@ -752,7 +751,7 @@ public final class NotInMyPotRulesEngine {
                 .filter(player -> player.getRole() == NotInMyPotRole.MEAT_EATER)
                 .count();
         if (activeMeatEaters == 0) {
-            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED", true);
+            finishGame(state, NotInMyPotRole.VEGETARIAN, events, "ALL_MEAT_EATERS_EXPELLED", false);
             return true;
         }
         if (activeVegetarians == activeMeatEaters) {
