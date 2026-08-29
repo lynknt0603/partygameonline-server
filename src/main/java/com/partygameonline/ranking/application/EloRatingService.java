@@ -2,6 +2,7 @@ package com.partygameonline.ranking.application;
 
 import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
+import com.partygameonline.game.notinmypot.application.NotInMyPotEloCalculator;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import java.util.ArrayList;
@@ -10,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -206,20 +208,68 @@ public class EloRatingService {
      */
     @Transactional
     public EloMatchResult applyMatch(String gameCode, List<PlayerOutcome> outcomes) {
+        if (NotInMyPotGameManifest.ID.equals(gameCode)) {
+            List<PlayerOutcome> distinct = distinctOutcomes(outcomes);
+            Set<String> winners = distinct.stream()
+                    .filter(PlayerOutcome::winner)
+                    .map(PlayerOutcome::playerId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            return completeNotInMyPotMatch(
+                    distinct.stream().map(PlayerOutcome::playerId).toList(),
+                    winners
+            );
+        }
         return applyRatings(gameCode, outcomes, true);
     }
 
     /** Completes a Not In My Pot match against its own persisted rating column. */
     @Transactional
     public EloMatchResult completeNotInMyPotMatch(List<String> playerIds, Set<String> winners) {
+        List<String> distinctPlayerIds = distinctIds(playerIds);
+        if (distinctPlayerIds.isEmpty()) {
+            return new EloMatchResult(Map.of(), 0);
+        }
         Set<String> winnerIds = winners == null ? Set.of() : Set.copyOf(winners);
-        return applyRatings(
-                NotInMyPotGameManifest.ID,
-                distinctIds(playerIds).stream()
-                        .map(playerId -> new PlayerOutcome(playerId, winnerIds.contains(playerId)))
-                        .toList(),
-                true
+        Map<String, UserGameStatisticEntity> stats = loadLocked(NotInMyPotGameManifest.ID, distinctPlayerIds);
+        double roomAverage = roomAverage(stats);
+        List<NotInMyPotEloCalculator.PlayerRating> winnerRatings = new ArrayList<>();
+        List<NotInMyPotEloCalculator.PlayerRating> loserRatings = new ArrayList<>();
+        for (String playerId : distinctPlayerIds) {
+            UserGameStatisticEntity statistic = stats.get(playerId);
+            NotInMyPotEloCalculator.PlayerRating rating = new NotInMyPotEloCalculator.PlayerRating(
+                    playerId,
+                    statistic.getEloForGame()
+            );
+            if (winnerIds.contains(playerId)) {
+                winnerRatings.add(rating);
+            } else {
+                loserRatings.add(rating);
+            }
+        }
+
+        List<NotInMyPotEloCalculator.EloChange> calculated =
+                NotInMyPotEloCalculator.calculateEloChanges(winnerRatings, loserRatings);
+        Map<String, EloChange> changes = new LinkedHashMap<>();
+        for (NotInMyPotEloCalculator.EloChange change : calculated) {
+            UserGameStatisticEntity statistic = stats.get(change.id());
+            statistic.applyNotInMyPotRatingDelta(change.eloChange());
+            statistic.completeMatch(winnerIds.contains(change.id()));
+            changes.put(change.id(), new EloChange(
+                    change.id(),
+                    winnerIds.contains(change.id()),
+                    change.oldElo(),
+                    change.eloChange(),
+                    change.newElo()
+            ));
+        }
+        statisticRepository.saveAll(stats.values());
+        log.info(
+                "Not In My Pot ELO completed players={} winners={} roomAverage={}",
+                distinctPlayerIds.size(),
+                winnerRatings.size(),
+                roomAverage
         );
+        return new EloMatchResult(changes, roomAverage);
     }
 
     @Transactional

@@ -14,6 +14,8 @@ public record NotInMyPotView(
         boolean finished,
         String currentPlayerId,
         int turnNumber,
+        Instant turnDeadline,
+        boolean actionHistoryVisible,
         int targetScore,
         String winnerFaction,
         List<String> winnerPlayerIds,

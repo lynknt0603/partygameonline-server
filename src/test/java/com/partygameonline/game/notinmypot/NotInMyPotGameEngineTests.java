@@ -7,6 +7,7 @@ import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
 import com.partygameonline.game.notinmypot.api.dto.NotInMyPotView;
+import com.partygameonline.game.notinmypot.api.dto.NotInMyPotCardView;
 import com.partygameonline.game.notinmypot.application.NotInMyPotRules;
 import com.partygameonline.game.notinmypot.application.NotInMyPotRulesEngine;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotAction;
@@ -18,6 +19,7 @@ import com.partygameonline.game.notinmypot.domain.NotInMyPotPendingType;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotPhase;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotPlayerState;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotRole;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -58,6 +60,72 @@ class NotInMyPotGameEngineTests {
                     .count() + state.getDrawPile().size())
                     .isEqualTo(deckSize);
         }
+    }
+
+    @Test
+    void appliesRoomTurnSettingsAndProjectsHistoryVisibility() {
+        Map<String, Object> roomSettings = Map.of(
+                "notInMyPot", Map.of("turnSeconds", 45, "showActionHistory", false)
+        );
+        List<String> playerIds = List.of("player-0", "player-1", "player-2");
+        Map<String, String> displayNames = Map.of(
+                "player-0", "Player 0",
+                "player-1", "Player 1",
+                "player-2", "Player 2"
+        );
+        NotInMyPotGameState state = engine.createGame(
+                new GameConfig(NotInMyPotGameManifest.ID, "ROOM", playerIds, displayNames, 7L, roomSettings),
+                new SeededRandomSource(7L)
+        );
+
+        assertThat(state.getSettings()).isEqualTo(new NotInMyPotSettings(45, false));
+        assertThat(state.getTurnDeadline()).isAfter(Instant.now());
+        assertThat(projector.project(state, player(state.getPlayers().getFirst())).actionHistoryVisible()).isFalse();
+        assertThat(projector.project(state, player(state.getPlayers().getFirst())).publicEvents()).isEmpty();
+
+        NotInMyPotPlayerState actor = currentPlayer(state);
+        NotInMyPotCard playedCard = ingredient("hidden-history-card", NotInMyPotIngredientType.VEGETABLE);
+        replaceHand(actor, playedCard,
+                ingredient("hidden-history-filler-1", NotInMyPotIngredientType.SALT),
+                ingredient("hidden-history-filler-2", NotInMyPotIngredientType.SALT));
+        NotInMyPotAction play = new NotInMyPotAction(
+                NotInMyPotAction.PLAY_INGREDIENT,
+                "hidden-history-play",
+                state.getStateVersion(),
+                playedCard.cardId(),
+                null,
+                null,
+                null,
+                List.of()
+        );
+        assertThat(engine.apply(state, player(actor), play, new SeededRandomSource(8L)).events()).isEmpty();
+    }
+
+    @Test
+    void anExpiredNormalTurnCanBeTimedOutAndAdvancesToTheNextPlayer() {
+        NotInMyPotGameState state = newGame(3);
+        String previousPlayerId = state.getCurrentPlayerId();
+        state.setTurnDeadline(Instant.now().minusSeconds(1));
+        NotInMyPotAction timeout = new NotInMyPotAction(
+                NotInMyPotAction.TIMEOUT,
+                "normal-turn-timeout",
+                state.getStateVersion(),
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+
+        assertThat(engine.validate(state, player(state.requirePlayer(previousPlayerId)), timeout).valid()).isTrue();
+        engine.apply(state, player(state.requirePlayer(previousPlayerId)), timeout, new SeededRandomSource(12L));
+
+        assertThat(state.getCurrentPlayerId()).isNotEqualTo(previousPlayerId);
+        assertThat(state.getPublicEvents()).anySatisfy(event -> {
+            if ("TURN_TIMED_OUT".equals(event.type())) {
+                assertThat(event.payload()).containsEntry("playerId", previousPlayerId);
+            }
+        });
     }
 
     @Test
@@ -193,66 +261,52 @@ class NotInMyPotGameEngineTests {
     }
 
     @Test
-    void slottedSpoonOnlyShowsInspectedCardsToTheActorAndValidatesReorder() {
+    void slottedSpoonRandomizesOnlyTheThreeLifoCardsAndShowsThemWithoutPlayerReordering() {
         NotInMyPotGameState state = newGame(4);
         NotInMyPotPlayerState actor = currentPlayer(state);
         NotInMyPotCard actionCard = NotInMyPotCard.action("slotted", NotInMyPotActionType.SLOTTED_SPOON);
         replaceHand(actor, actionCard,
                 ingredient("slotted-filler-1", NotInMyPotIngredientType.SALT),
                 ingredient("slotted-filler-2", NotInMyPotIngredientType.SALT));
-        List<NotInMyPotCard> potCards = List.of(
-                ingredient("slotted-bottom", NotInMyPotIngredientType.MEAT),
-                ingredient("slotted-middle", NotInMyPotIngredientType.SALT),
-                ingredient("slotted-top", NotInMyPotIngredientType.VEGETABLE)
-        );
-        for (NotInMyPotCard card : potCards) {
-            state.getPot().addFirst(card);
-        }
+        NotInMyPotCard oldestUntouched = ingredient("slotted-oldest", NotInMyPotIngredientType.MEAT);
+        NotInMyPotCard thirdLatest = ingredient("slotted-third-latest", NotInMyPotIngredientType.SALT);
+        NotInMyPotCard secondLatest = ingredient("slotted-second-latest", NotInMyPotIngredientType.VEGETABLE);
+        NotInMyPotCard latest = ingredient("slotted-latest", NotInMyPotIngredientType.MEAT);
+        state.getPot().addFirst(oldestUntouched);
+        state.getPot().addFirst(thirdLatest);
+        state.getPot().addFirst(secondLatest);
+        state.getPot().addFirst(latest);
         ensureDrawPile(state, 10);
 
         NotInMyPotAction play = playAction(state, actor, actionCard, null, "slotted-play");
         engine.apply(state, player(actor), play, new SeededRandomSource(9));
         assertThat(state.getPhase()).isEqualTo(NotInMyPotPhase.RESOLVING_ACTION);
         assertThat(state.getPendingAction()).isNotNull();
-        assertThat(state.getPendingAction().type()).isEqualTo(NotInMyPotPendingType.REORDER_POT_CARDS);
-        assertThat(projector.project(state, player(actor)).privateInspectedCards()).hasSize(3);
+        assertThat(state.getPendingAction().type()).isEqualTo(NotInMyPotPendingType.INSPECT_SHUFFLED_POT);
+        assertThat(projector.project(state, player(actor)).privateInspectedCards())
+                .extracting(NotInMyPotCardView::cardId)
+                .containsExactlyInAnyOrder(latest.cardId(), secondLatest.cardId(), thirdLatest.cardId());
         assertThat(projector.project(state, player(otherPlayer(state, actor))).privateInspectedCards()).isEmpty();
+        assertThat(state.getPot().getLast()).isEqualTo(oldestUntouched);
+        assertThat(state.getPot().stream().limit(3).toList())
+                .containsExactlyInAnyOrder(latest, secondLatest, thirdLatest);
+        List<String> serverChosenOrder = state.getPot().stream().map(NotInMyPotCard::cardId).toList();
 
-        List<String> selected = state.getPendingAction().inspectedCardIds();
-        List<String> invalid = new ArrayList<>(selected);
-        invalid.set(0, selected.get(1));
-        ValidationResult duplicate = engine.validate(
-                state,
-                player(actor),
-                new NotInMyPotAction(
-                        NotInMyPotAction.REORDER_POT_CARDS,
-                        "bad-order",
-                        state.getStateVersion(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        invalid
-                )
-        );
-        assertThat(duplicate.valid()).isFalse();
-        assertThat(duplicate.errorCode()).isEqualTo("DUPLICATE_CARD");
-
-        List<String> chosenOrder = selected.reversed();
-        NotInMyPotAction reorder = new NotInMyPotAction(
-                NotInMyPotAction.REORDER_POT_CARDS,
-                "slotted-reorder",
+        NotInMyPotAction acknowledge = new NotInMyPotAction(
+                NotInMyPotAction.ACKNOWLEDGE_SLOTTED_SPOON,
+                "slotted-acknowledge",
                 state.getStateVersion(),
                 null,
                 null,
                 null,
                 null,
-                chosenOrder
+                List.of()
         );
-        assertThat(engine.validate(state, player(actor), reorder).valid()).isTrue();
-        engine.apply(state, player(actor), reorder, new SeededRandomSource(10));
+        assertThat(engine.validate(state, player(actor), acknowledge).valid()).isTrue();
+        engine.apply(state, player(actor), acknowledge, new SeededRandomSource(10));
         assertThat(state.getPendingAction()).isNull();
-        assertThat(state.getPot().stream().map(NotInMyPotCard::cardId).toList()).containsExactlyElementsOf(chosenOrder);
+        assertThat(state.getPot().stream().map(NotInMyPotCard::cardId).toList())
+                .containsExactlyElementsOf(serverChosenOrder);
     }
 
     @Test

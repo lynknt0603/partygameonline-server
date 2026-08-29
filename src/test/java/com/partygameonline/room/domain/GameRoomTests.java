@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GameRoomTests {
@@ -23,6 +24,18 @@ class GameRoomTests {
         assertThatThrownBy(() -> room.join("p3", "Other"))
                 .extracting(ex -> ((RoomException) ex).getErrorCode())
                 .isEqualTo("ROOM_FULL");
+    }
+
+    @Test
+    void lockedRoomRejectsNewPlayersAndIsHiddenFromPublicWaitingList() {
+        GameRoom room = waitingRoom();
+        room.replaceSettings(Map.of("locked", true));
+
+        assertThat(room.isLocked()).isTrue();
+        assertThat(room.isPublicWaiting()).isFalse();
+        assertThatThrownBy(() -> room.join("p2", "Guest"))
+                .extracting(ex -> ((RoomException) ex).getErrorCode())
+                .isEqualTo("ROOM_LOCKED");
     }
 
     @Test

@@ -27,7 +27,6 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     public static final int EMERGENCY_RETURN_COUNT = 2;
     public static final int TRASH_DRAW_COUNT = 3;
     public static final int NORMAL_DRAW_COUNT = 1;
-    public static final int PENDING_TIMEOUT_SECONDS = 30;
 
     private final String roomId;
     private final List<NotInMyPotPlayerState> players = new ArrayList<>();
@@ -43,8 +42,10 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     private final Map<String, GameEloChange> eloChanges = new LinkedHashMap<>();
 
     private NotInMyPotPhase phase = NotInMyPotPhase.STARTING;
+    private NotInMyPotSettings settings = NotInMyPotSettings.defaults();
     private int targetScore;
     private String currentPlayerId;
+    private Instant turnDeadline;
     private int turnNumber = 1;
     private int stateVersion = 1;
     private boolean turnHasActed;
@@ -69,12 +70,28 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
         this.phase = phase;
     }
 
+    public NotInMyPotSettings getSettings() {
+        return settings;
+    }
+
+    public void configure(NotInMyPotSettings settings) {
+        this.settings = settings == null ? NotInMyPotSettings.defaults() : settings;
+    }
+
     public String getCurrentPlayerId() {
         return currentPlayerId;
     }
 
     public void setCurrentPlayerId(String currentPlayerId) {
         this.currentPlayerId = currentPlayerId;
+    }
+
+    public Instant getTurnDeadline() {
+        return turnDeadline;
+    }
+
+    public void setTurnDeadline(Instant turnDeadline) {
+        this.turnDeadline = turnDeadline;
     }
 
     public int getTargetScore() {
@@ -256,9 +273,15 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     }
 
     public boolean timeoutIsDue(Instant now) {
-        return pendingAction != null
-                && pendingAction.expiresAt() != null
-                && !pendingAction.expiresAt().isAfter(now == null ? Instant.now() : now);
+        Instant reference = now == null ? Instant.now() : now;
+        if (pendingAction != null) {
+            return pendingAction.expiresAt() != null
+                    && !pendingAction.expiresAt().isAfter(reference);
+        }
+        return phase == NotInMyPotPhase.PLAYING
+                && currentPlayerId != null
+                && turnDeadline != null
+                && !turnDeadline.isAfter(reference);
     }
 
     public int scorePot() {
@@ -288,6 +311,7 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
         this.finalPotScore = calculateFinalPotScore ? scorePot() : null;
         this.pendingAction = null;
         this.currentPlayerId = null;
+        this.turnDeadline = null;
         this.turnHasActed = false;
         this.winnerPlayerIds.clear();
         for (NotInMyPotPlayerState player : players) {

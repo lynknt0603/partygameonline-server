@@ -15,6 +15,7 @@ Every error body has `errorCode`, `message`, `timestamp`, `path`, `requestId`, `
 | `GAME_DISABLED` | 400 | Catalogue exists but `enabled=false` |
 | `ROOM_NOT_FOUND` | 404 | Unknown room id |
 | `ROOM_FULL` | 409 | Join over `maxPlayers` |
+| `ROOM_LOCKED` | 409 | Host locked the waiting room; new players cannot join |
 | `ROOM_ALREADY_JOINED` | 409 | Already in this room |
 | `ALREADY_IN_ROOM` | 409 | Already in another room |
 | `NOT_ROOM_MEMBER` | 403 | Ready/leave/start as a non-member |

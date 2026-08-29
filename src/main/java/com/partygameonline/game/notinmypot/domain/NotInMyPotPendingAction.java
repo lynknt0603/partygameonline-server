@@ -32,7 +32,7 @@ public record NotInMyPotPendingAction(
     public int requiredCardCount() {
         return switch (type) {
             case SELECT_TARGET -> 1;
-            case REORDER_POT_CARDS -> inspectedCards.size();
+            case INSPECT_SHUFFLED_POT -> inspectedCards.size();
             case RETURN_SHOPPING_CARDS -> 2;
         };
     }

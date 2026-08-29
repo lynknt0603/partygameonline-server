@@ -23,7 +23,7 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 | POST | `/api/v1/rooms/{roomId}/leave` | session + CSRF | 204 |
 | PUT | `/api/v1/rooms/{roomId}/ready` | session + CSRF | 200 `RoomResponse` |
 | POST | `/api/v1/rooms/{roomId}/start` | session + CSRF | 200 `RoomResponse` |
-| PUT | `/api/v1/rooms/{roomId}/settings` | session + CSRF | 200 `RoomResponse` (host, WAITING; NOB timers) |
+| PUT | `/api/v1/rooms/{roomId}/settings` | session + CSRF | 200 `RoomResponse` (host, WAITING; NOB/NIMP settings) |
 | GET | `/api/v1/matches` | session | 200 page of `MatchResponse` |
 | GET | `/api/v1/matches/{matchId}` | session | 200 `MatchResponse` |
 | GET | `/api/v1/profile/me/stats` | session | 200 `ProfileStatsResponse` |
@@ -194,6 +194,25 @@ Send `X-Request-Id` to correlate; the server echoes it. Codes: `contracts/rest/E
 The game catalogue id/room `gameId` is `not-in-my-pot`; the product game code is
 `NOT_IN_MY_POT`. It supports 3–8 players and is registered in `GET /api/v1/games`.
 
+Before a match starts, the host can update its room settings with:
+
+```json
+{
+  "notInMyPot": {
+    "turnSeconds": 30,
+    "showActionHistory": true
+  },
+  "locked": false
+}
+```
+
+`turnSeconds` accepts 10–120 seconds (invalid values fall back to 30). When
+`showActionHistory` is `false`, the snapshot omits public action events and the
+web client hides the activity log. Set `locked` to `true` to keep new players
+out of a waiting room; locked rooms are omitted from the public waiting-room
+list. Only the host can change these settings while the room is waiting, and
+turn deadlines are enforced server-side.
+
 ### Start
 
 Use the existing lobby flow (`POST /api/v1/rooms/{roomId}/start`) or the game-specific
@@ -238,7 +257,7 @@ Supported command types and fields:
 | `PLAY_INGREDIENT` | `cardId`, `declaredType` (`VEGETABLE`, `SALT`, `MEAT`) |
 | `PLAY_ACTION` | `cardId`, optional `actionType`, optional `targetPlayerId` |
 | `SELECT_TARGET` | `targetPlayerId` |
-| `REORDER_POT_CARDS` | `cardIds` in `TOP` → `BOTTOM` order |
+| `ACKNOWLEDGE_SLOTTED_SPOON` | no extra fields; confirms the actor finished viewing the server-shuffled top cards |
 | `RETURN_SHOPPING_CARDS` | `cardIds` with exactly two cards, in `TOP` → `SECOND` order |
 | `DECLARE_POT_READY` | no extra fields; only a Vegetarian at the start of their turn |
 

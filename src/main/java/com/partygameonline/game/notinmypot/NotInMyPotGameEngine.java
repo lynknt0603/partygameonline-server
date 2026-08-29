@@ -17,10 +17,12 @@ import com.partygameonline.game.notinmypot.domain.NotInMyPotEvent;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotPlayerState;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotRole;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -37,6 +39,7 @@ public class NotInMyPotGameEngine
         int playerCount = config.playerIds().size();
         NotInMyPotRules.validatePlayerCount(playerCount);
         NotInMyPotGameState state = new NotInMyPotGameState(config.roomId());
+        state.configure(NotInMyPotSettings.fromRoomSettings(config.settings()));
         state.setTargetScore(NotInMyPotRules.targetScore(playerCount));
         List<NotInMyPotRole> roles = NotInMyPotRules.rolesFor(playerCount);
         random.shuffle(roles);
@@ -66,6 +69,7 @@ public class NotInMyPotGameEngine
         state.setCurrentPlayerId(
                 state.getPlayers().get(random.nextInt(state.getPlayers().size())).getPlayerId()
         );
+        state.setTurnDeadline(Instant.now().plusSeconds(state.getSettings().turnSeconds()));
         state.addPublicEvent(NotInMyPotEvent.of("NOT_IN_MY_POT_GAME_STARTED", Map.of(
                 "playerCount", playerCount,
                 "targetScore", NotInMyPotRules.targetScore(playerCount),
@@ -139,13 +143,19 @@ public class NotInMyPotGameEngine
             NotInMyPotGameState state,
             List<NotInMyPotEvent> events
     ) {
+        // Action history is a room setting. Keep the authoritative events in
+        // state for server rules, but do not publish them when the host has
+        // disabled the activity log (the projected view is filtered too).
+        List<NotInMyPotEvent> publishedEvents = state.getSettings().showActionHistory()
+                ? events
+                : List.of();
         if (state.isFinished()) {
             String winner = state.getWinnerPlayerIds().isEmpty()
                     ? null
                     : state.getWinnerPlayerIds().getFirst();
-            return GameResult.finished(state, events, winner);
+            return GameResult.finished(state, publishedEvents, winner);
         }
-        return GameResult.of(state, events);
+        return GameResult.of(state, publishedEvents);
     }
 
     private static String firstString(Map<String, Object> payload, String... keys) {

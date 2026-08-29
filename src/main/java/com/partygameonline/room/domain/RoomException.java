@@ -17,6 +17,10 @@ public class RoomException extends ApiException {
         return new RoomException("ROOM_FULL", HttpStatus.CONFLICT, "The room is full");
     }
 
+    public static RoomException locked() {
+        return new RoomException("ROOM_LOCKED", HttpStatus.CONFLICT, "The room is locked");
+    }
+
     public static RoomException alreadyJoined() {
         return new RoomException("ROOM_ALREADY_JOINED", HttpStatus.CONFLICT, "You are already in this room");
     }

@@ -10,6 +10,8 @@ import java.util.Optional;
 
 public class GameRoom {
 
+    private static final String LOCKED_SETTING = "locked";
+
     private final RoomId id;
     private final RoomName name;
     private final String gameId;
@@ -92,6 +94,10 @@ public class GameRoom {
         return Map.copyOf(settings);
     }
 
+    public boolean isLocked() {
+        return Boolean.TRUE.equals(settings.get(LOCKED_SETTING));
+    }
+
     public void replaceSettings(Map<String, Object> next) {
         requireWaiting();
         settings.clear();
@@ -101,7 +107,7 @@ public class GameRoom {
     }
 
     public boolean isPublicWaiting() {
-        return visibility == RoomVisibility.PUBLIC && status == RoomStatus.WAITING;
+        return visibility == RoomVisibility.PUBLIC && status == RoomStatus.WAITING && !isLocked();
     }
 
     public Optional<RoomPlayer> findPlayer(String playerId) {
@@ -116,6 +122,9 @@ public class GameRoom {
         requireWaiting();
         if (findPlayer(playerId).isPresent()) {
             throw RoomException.alreadyJoined();
+        }
+        if (isLocked()) {
+            throw RoomException.locked();
         }
         if (players.size() >= maxPlayers) {
             throw RoomException.full();

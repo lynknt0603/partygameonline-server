@@ -6,6 +6,8 @@ import com.partygameonline.game.core.GameManifest;
 import com.partygameonline.game.core.GameRegistry;
 import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.nob.domain.NobTimingSettings;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomException;
 import com.partygameonline.room.domain.RoomId;
@@ -77,7 +79,15 @@ public class RoomService {
                         Instant.now()
                 );
                 if (NobGameManifest.ID.equals(game.id())) {
-                    room.replaceSettings(Map.of("nob", NobTimingSettings.defaults().toMap()));
+                    room.replaceSettings(Map.of(
+                            "nob", NobTimingSettings.defaults().toMap(),
+                            "locked", false
+                    ));
+                } else if (NotInMyPotGameManifest.ID.equals(game.id())) {
+                    room.replaceSettings(Map.of(
+                            "notInMyPot", NotInMyPotSettings.defaults().toMap(),
+                            "locked", false
+                    ));
                 }
                 roomRepository.save(room);
                 roomRepository.indexPlayer(principal.playerId(), roomId);
@@ -188,22 +198,51 @@ public class RoomService {
         });
     }
 
-    public GameRoom updateSettings(PlayerPrincipal principal, String rawRoomId, Map<String, Object> nobSettings) {
+    public GameRoom updateSettings(
+            PlayerPrincipal principal,
+            String rawRoomId,
+            Map<String, Object> nobSettings,
+            Map<String, Object> notInMyPotSettings,
+            Boolean locked
+    ) {
         RoomId roomId = RoomId.parse(rawRoomId);
         return roomLocks.withRoom(roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
             if (!room.getHostPlayerId().equals(principal.playerId())) {
                 throw RoomException.notHost();
             }
-            if (!NobGameManifest.ID.equals(room.getGameId())) {
+            Map<String, Object> next = new LinkedHashMap<>(room.getSettings());
+            if (locked != null) {
+                next.put("locked", locked);
+            }
+            if (NobGameManifest.ID.equals(room.getGameId())) {
+                next.put("nob", NobTimingSettings.fromMap(nobSettings).toMap());
+            } else if (NotInMyPotGameManifest.ID.equals(room.getGameId())) {
+                next.put("notInMyPot", NotInMyPotSettings.fromMap(notInMyPotSettings).toMap());
+            } else {
                 throw RoomException.invalidSettings();
             }
-            Map<String, Object> next = new LinkedHashMap<>(room.getSettings());
-            next.put("nob", NobTimingSettings.fromMap(nobSettings).toMap());
             room.replaceSettings(next);
             realtimePublisher.roomSettingsChanged(room);
             return room;
         });
+    }
+
+    /**
+     * Backwards-compatible overload for callers that only send NOB settings.
+     */
+    public GameRoom updateSettings(PlayerPrincipal principal, String rawRoomId, Map<String, Object> nobSettings) {
+        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), null);
+    }
+
+    /** Backwards-compatible overload for callers that send both game settings. */
+    public GameRoom updateSettings(
+            PlayerPrincipal principal,
+            String rawRoomId,
+            Map<String, Object> nobSettings,
+            Map<String, Object> notInMyPotSettings
+    ) {
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, null);
     }
 
     public void close(PlayerPrincipal principal, String rawRoomId) {

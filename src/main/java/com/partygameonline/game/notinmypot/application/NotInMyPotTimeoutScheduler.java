@@ -41,11 +41,12 @@ public class NotInMyPotTimeoutScheduler {
                 continue;
             }
             if (!(session.getState() instanceof NotInMyPotGameState state)
-                    || !state.timeoutIsDue(now)
-                    || state.getPendingAction() == null) {
+                    || !state.timeoutIsDue(now)) {
                 continue;
             }
-            String actorId = state.getPendingAction().actorPlayerId();
+            String actorId = state.getPendingAction() == null
+                    ? state.getCurrentPlayerId()
+                    : state.getPendingAction().actorPlayerId();
             var actor = state.player(actorId);
             if (actor == null) {
                 continue;
