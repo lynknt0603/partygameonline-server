@@ -101,6 +101,7 @@ public class RoomController {
                 roomId,
                 request == null ? java.util.Map.of() : request.nob(),
                 request == null ? java.util.Map.of() : request.notInMyPot(),
+                request == null ? java.util.Map.of() : request.wheresTheBone(),
                 request == null ? null : request.locked()
         ));
     }

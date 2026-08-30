@@ -1,6 +1,7 @@
 package com.partygameonline.profile.application;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.history.infrastructure.MatchEntity;
@@ -113,10 +114,10 @@ public class ProfileStatsService {
                     .stream()
                     .findFirst()
                     .orElse(null);
-        boolean hasStatistic = statisticRepository != null && statisticRepository.findByUserIdAndGameCode(
-                identifier,
-                NobGameManifest.ID
-        ).isPresent();
+        boolean hasStatistic = statisticRepository != null && (
+                statisticRepository.findByUserIdAndGameCode(identifier, NobGameManifest.ID).isPresent()
+                        || statisticRepository.findByUserIdAndGameCode(identifier, WheresTheBoneGameManifest.ID).isPresent()
+        );
         if (latest != null || hasStatistic) {
             return buildStats(
                     identifier,
@@ -180,6 +181,7 @@ public class ProfileStatsService {
                 ).orElse(null);
         int elo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getEloNob();
         int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestElo();
+        ProfileStatsResponse.WheresTheBoneStats boneStats = boneStats(playerId);
         return new ProfileStatsResponse(
                 new ProfileStatsResponse.Player(
                         playerId,
@@ -199,7 +201,42 @@ public class ProfileStatsService {
                         halfblood.toResponse(),
                         elo,
                         highestElo
-                )
+                ),
+                boneStats
+        );
+    }
+
+    private ProfileStatsResponse.WheresTheBoneStats boneStats(String playerId) {
+        List<MatchEntity> matches = matchRepository.findAllFinishedForPlayerAndGame(
+                playerId, WheresTheBoneGameManifest.ID
+        );
+        Map<UUID, MatchPlayerEntity> players = playerByMatch(matches, playerId);
+        FactionCounter thief = new FactionCounter();
+        FactionCounter yard = new FactionCounter();
+        FactionCounter white = new FactionCounter();
+        FactionCounter packmate = new FactionCounter();
+        long wins = 0;
+        for (MatchEntity match : matches) {
+            MatchPlayerEntity player = players.get(match.getId());
+            if (player == null) continue;
+            boolean won = isWin(match, player, playerId);
+            if (won) wins++;
+            FactionCounter counter = switch (player.getRole() == null ? "" : player.getRole().toUpperCase(Locale.ROOT)) {
+                case "BONE_THIEF" -> thief;
+                case "YARD_DOG" -> yard;
+                case "WHITE_DOG" -> white;
+                case "PACKMATE" -> packmate;
+                default -> null;
+            };
+            if (counter != null) counter.record(won);
+        }
+        UserGameStatisticEntity statistic = statisticRepository == null ? null
+                : statisticRepository.findByUserIdAndGameCode(playerId, WheresTheBoneGameManifest.ID).orElse(null);
+        int elo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getEloForGame();
+        int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestEloForGame();
+        return new ProfileStatsResponse.WheresTheBoneStats(
+                matches.size(), wins, rate(wins, matches.size()),
+                thief.toResponse(), yard.toResponse(), white.toResponse(), packmate.toResponse(), elo, highestElo
         );
     }
 

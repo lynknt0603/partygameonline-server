@@ -8,6 +8,8 @@ import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.nob.domain.NobTimingSettings;
 import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
+import com.partygameonline.game.wheresthebone.domain.WheresTheBoneSettings;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomException;
 import com.partygameonline.room.domain.RoomId;
@@ -86,6 +88,11 @@ public class RoomService {
                 } else if (NotInMyPotGameManifest.ID.equals(game.id())) {
                     room.replaceSettings(Map.of(
                             "notInMyPot", NotInMyPotSettings.defaults().toMap(),
+                            "locked", false
+                    ));
+                } else if (WheresTheBoneGameManifest.ID.equals(game.id())) {
+                    room.replaceSettings(Map.of(
+                            "wheresTheBone", WheresTheBoneSettings.defaults().toMap(),
                             "locked", false
                     ));
                 }
@@ -203,6 +210,7 @@ public class RoomService {
             String rawRoomId,
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings,
+            Map<String, Object> wheresTheBoneSettings,
             Boolean locked
     ) {
         RoomId roomId = RoomId.parse(rawRoomId);
@@ -219,6 +227,8 @@ public class RoomService {
                 next.put("nob", NobTimingSettings.fromMap(nobSettings).toMap());
             } else if (NotInMyPotGameManifest.ID.equals(room.getGameId())) {
                 next.put("notInMyPot", NotInMyPotSettings.fromMap(notInMyPotSettings).toMap());
+            } else if (WheresTheBoneGameManifest.ID.equals(room.getGameId())) {
+                next.put("wheresTheBone", WheresTheBoneSettings.fromMap(wheresTheBoneSettings).toMap());
             } else {
                 throw RoomException.invalidSettings();
             }
@@ -232,7 +242,7 @@ public class RoomService {
      * Backwards-compatible overload for callers that only send NOB settings.
      */
     public GameRoom updateSettings(PlayerPrincipal principal, String rawRoomId, Map<String, Object> nobSettings) {
-        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), null);
+        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), Map.of(), null);
     }
 
     /** Backwards-compatible overload for callers that send both game settings. */
@@ -242,7 +252,18 @@ public class RoomService {
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, null);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), null);
+    }
+
+    /** Backwards-compatible overload retained for the original two-game API. */
+    public GameRoom updateSettings(
+            PlayerPrincipal principal,
+            String rawRoomId,
+            Map<String, Object> nobSettings,
+            Map<String, Object> notInMyPotSettings,
+            Boolean locked
+    ) {
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), locked);
     }
 
     public void close(PlayerPrincipal principal, String rawRoomId) {
@@ -265,7 +286,10 @@ public class RoomService {
         return roomLocks.withRoom(roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
             GameManifest game = requireEnabledGame(room.getGameId());
-            room.start(principal.playerId(), game.minPlayers());
+            int requiredPlayers = WheresTheBoneGameManifest.ID.equals(room.getGameId())
+                    ? room.getMaxPlayers()
+                    : game.minPlayers();
+            room.start(principal.playerId(), requiredPlayers);
             Optional<GameSession> session = gameRuntimeService.startGame(room);
             Map<String, Object> views = session
                     .map(active -> gameRuntimeService.projectViews(room, active))
