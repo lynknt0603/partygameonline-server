@@ -39,6 +39,8 @@ public final class WheresTheBoneGameState implements GameOutcomeState, GameEloCh
     private final Set<String> abandonedPlayerIds = new LinkedHashSet<>();
     private final Set<String> pendingPackCandidates = new LinkedHashSet<>();
     private final Map<String, String> votes = new LinkedHashMap<>();
+    private final Set<String> discussionSkipRequesters = new LinkedHashSet<>();
+    private final Map<String, Boolean> discussionSkipResponses = new LinkedHashMap<>();
     private final List<WheresTheBoneEvent> events = new ArrayList<>();
     private final Map<String, GameEloChange> eloChanges = new LinkedHashMap<>();
     private final Set<String> processedCommandIds = new LinkedHashSet<>();
@@ -55,6 +57,7 @@ public final class WheresTheBoneGameState implements GameOutcomeState, GameEloCh
     private boolean boneTaken;
     private Integer boneTakenHour;
     private String boneTakenBy;
+    private String discussionSkipRequesterId;
     private int pendingPackCount;
     private WheresTheBoneRole winnerFaction;
     private Set<String> revealedPlayerIds = new LinkedHashSet<>();
@@ -95,6 +98,8 @@ public final class WheresTheBoneGameState implements GameOutcomeState, GameEloCh
     public Set<String> getAbandonedPlayerIds() { return Collections.unmodifiableSet(abandonedPlayerIds); }
     public Set<String> getPendingPackCandidates() { return pendingPackCandidates; }
     public Map<String, String> getVotes() { return votes; }
+    public Set<String> getDiscussionSkipRequesters() { return discussionSkipRequesters; }
+    public Map<String, Boolean> getDiscussionSkipResponses() { return discussionSkipResponses; }
     public List<WheresTheBoneEvent> getEvents() { return List.copyOf(events); }
     public Map<String, GameEloChange> getEloChanges() { return Map.copyOf(eloChanges); }
     public WheresTheBoneSettings getSettings() { return settings; }
@@ -119,6 +124,8 @@ public final class WheresTheBoneGameState implements GameOutcomeState, GameEloCh
     public void setBoneTakenHour(Integer value) { boneTakenHour = value; }
     public String getBoneTakenBy() { return boneTakenBy; }
     public void setBoneTakenBy(String value) { boneTakenBy = value; }
+    public String getDiscussionSkipRequesterId() { return discussionSkipRequesterId; }
+    public void setDiscussionSkipRequesterId(String value) { discussionSkipRequesterId = value; }
     public int getPendingPackCount() { return pendingPackCount; }
     public void setPendingPackCount(int value) { pendingPackCount = value; }
     public WheresTheBoneRole getWinnerFaction() { return winnerFaction; }
