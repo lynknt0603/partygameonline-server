@@ -13,6 +13,8 @@ games:
     timeout-scheduler-enabled: false
   not-in-my-pot:
     timeout-scheduler-enabled: false
+  wheres-the-bone:
+    timeout-scheduler-enabled: false
 
 app:
   security:

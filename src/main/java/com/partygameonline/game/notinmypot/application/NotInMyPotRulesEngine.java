@@ -51,10 +51,13 @@ public final class NotInMyPotRulesEngine {
 
         String type = normalized(action.type());
         if (NotInMyPotAction.TIMEOUT.equals(type)) {
-            if (state.getPendingAction() == null || !state.timeoutIsDue(Instant.now())) {
-                return ValidationResult.reject("TIMEOUT_NOT_DUE", "No pending action has expired");
+            if (!state.timeoutIsDue(Instant.now())) {
+                return ValidationResult.reject("TIMEOUT_NOT_DUE", "The turn or pending action has not expired");
             }
-            if (!actorId.equals(state.getPendingAction().actorPlayerId())) {
+            String expectedActor = state.getPendingAction() == null
+                    ? state.getCurrentPlayerId()
+                    : state.getPendingAction().actorPlayerId();
+            if (!actorId.equals(expectedActor)) {
                 return ValidationResult.reject("NOT_YOUR_TURN", "It is not your turn");
             }
             return ValidationResult.ok();
@@ -80,7 +83,7 @@ public final class NotInMyPotRulesEngine {
             case NotInMyPotAction.DECLARE_POT_READY -> validatePotReady(state, actor);
             case NotInMyPotAction.SELECT_TARGET,
                     NotInMyPotAction.RETURN_SHOPPING_CARDS,
-                    NotInMyPotAction.REORDER_POT_CARDS ->
+                    NotInMyPotAction.ACKNOWLEDGE_SLOTTED_SPOON ->
                     ValidationResult.reject("WRONG_PENDING_ACTION", "There is no pending action for this command");
             default -> ValidationResult.reject("UNKNOWN_ACTION", "Unknown Not In My Pot action");
         };
@@ -102,7 +105,7 @@ public final class NotInMyPotRulesEngine {
             case NotInMyPotAction.PLAY_INGREDIENT -> applyIngredient(state, actorId, action, events);
             case NotInMyPotAction.PLAY_ACTION -> applyAction(state, actorId, action, random, events);
             case NotInMyPotAction.SELECT_TARGET -> applySelectedTarget(state, actorId, action, random, events);
-            case NotInMyPotAction.REORDER_POT_CARDS -> applyPotReorder(state, actorId, action, events);
+            case NotInMyPotAction.ACKNOWLEDGE_SLOTTED_SPOON -> acknowledgeSlottedSpoon(state, actorId, events);
             case NotInMyPotAction.RETURN_SHOPPING_CARDS -> applyShoppingReturn(state, actorId, action, events);
             case NotInMyPotAction.DECLARE_POT_READY -> applyPotReady(state, events);
             case NotInMyPotAction.TIMEOUT -> applyTimeout(state, random, events);
@@ -253,16 +256,11 @@ public final class NotInMyPotRulesEngine {
             }
             return validateTarget(state, actor.getPlayerId(), action.targetPlayerId());
         }
-        if (pending.type() == NotInMyPotPendingType.REORDER_POT_CARDS) {
-            if (!NotInMyPotAction.REORDER_POT_CARDS.equals(type)) {
-                return ValidationResult.reject("WRONG_PENDING_ACTION", "Reorder the inspected pot cards first");
+        if (pending.type() == NotInMyPotPendingType.INSPECT_SHUFFLED_POT) {
+            if (!NotInMyPotAction.ACKNOWLEDGE_SLOTTED_SPOON.equals(type)) {
+                return ValidationResult.reject("WRONG_PENDING_ACTION", "Review the shuffled pot cards first");
             }
-            return validateExactCards(
-                    action.cardIds(),
-                    pending.inspectedCardIds(),
-                    "INVALID_REORDER",
-                    "Choose exactly the inspected cards in a new order"
-            );
+            return ValidationResult.ok();
         }
         if (pending.type() == NotInMyPotPendingType.RETURN_SHOPPING_CARDS) {
             if (!NotInMyPotAction.RETURN_SHOPPING_CARDS.equals(type)) {
@@ -282,24 +280,6 @@ public final class NotInMyPotRulesEngine {
             return ValidationResult.ok();
         }
         return ValidationResult.reject("WRONG_PENDING_ACTION", "The pending action is no longer valid");
-    }
-
-    private static ValidationResult validateExactCards(
-            List<String> submitted,
-            List<String> expected,
-            String errorCode,
-            String message
-    ) {
-        if (hasDuplicates(submitted)) {
-            return ValidationResult.reject("DUPLICATE_CARD", "A card cannot be selected twice");
-        }
-        if (submitted.size() != expected.size()) {
-            return ValidationResult.reject("INVALID_CARD_COUNT", message);
-        }
-        if (!new HashSet<>(submitted).equals(new HashSet<>(expected))) {
-            return ValidationResult.reject(errorCode, message);
-        }
-        return ValidationResult.ok();
     }
 
     private static ValidationResult validateTarget(
@@ -371,7 +351,7 @@ public final class NotInMyPotRulesEngine {
                         List.of(),
                         targets,
                         Instant.now(),
-                        Instant.now().plusSeconds(NotInMyPotGameState.PENDING_TIMEOUT_SECONDS)
+                        pendingDeadline(state)
                 ));
                 addEvent(state, events, "TARGET_SELECTION_REQUIRED", Map.of(
                         "playerId", actorId,
@@ -498,7 +478,6 @@ public final class NotInMyPotRulesEngine {
         while (inspected.size() < NotInMyPotGameState.SLOTTED_SPOON_LIMIT && !state.getPot().isEmpty()) {
             inspected.add(state.getPot().removeFirst());
         }
-        random.shuffle(inspected);
         if (inspected.isEmpty()) {
             addEvent(state, events, "SLOTTED_SPOON_RESOLVED", Map.of(
                     "playerId", actor.getPlayerId(),
@@ -510,16 +489,21 @@ public final class NotInMyPotRulesEngine {
             finishRegularTurn(state, actor, events);
             return;
         }
+        List<NotInMyPotCard> randomizedPotOrder = new ArrayList<>(inspected);
+        random.shuffle(randomizedPotOrder);
+        putOnPotTop(state, randomizedPotOrder);
+        List<NotInMyPotCard> privateInspectionOrder = new ArrayList<>(inspected);
+        random.shuffle(privateInspectionOrder);
         beginPending(state, new NotInMyPotPendingAction(
-                NotInMyPotPendingType.REORDER_POT_CARDS,
+                NotInMyPotPendingType.INSPECT_SHUFFLED_POT,
                 actor.getPlayerId(),
                 null,
-                inspected,
+                privateInspectionOrder,
                 List.of(),
                 Instant.now(),
-                Instant.now().plusSeconds(NotInMyPotGameState.PENDING_TIMEOUT_SECONDS)
+                pendingDeadline(state)
         ));
-        addEvent(state, events, "POT_REORDER_REQUIRED", Map.of(
+        addEvent(state, events, "SLOTTED_SPOON_INSPECTION_REQUIRED", Map.of(
                 "playerId", actor.getPlayerId(),
                 "cardCount", inspected.size()
         ));
@@ -546,7 +530,7 @@ public final class NotInMyPotRulesEngine {
                 List.of(),
                 List.of(),
                 Instant.now(),
-                Instant.now().plusSeconds(NotInMyPotGameState.PENDING_TIMEOUT_SECONDS)
+                pendingDeadline(state)
         ));
         addEvent(state, events, "SHOPPING_RETURN_REQUIRED", Map.of(
                 "playerId", actor.getPlayerId(),
@@ -554,20 +538,17 @@ public final class NotInMyPotRulesEngine {
         ));
     }
 
-    private static void applyPotReorder(
+    private static void acknowledgeSlottedSpoon(
             NotInMyPotGameState state,
             String actorId,
-            NotInMyPotAction action,
             List<NotInMyPotEvent> events
     ) {
         NotInMyPotPendingAction pending = state.getPendingAction();
-        List<NotInMyPotCard> ordered = cardsByIds(pending.inspectedCards(), action.cardIds());
-        putOnPotTop(state, ordered);
         state.setPendingAction(null);
         state.setPhase(NotInMyPotPhase.PLAYING);
-        addEvent(state, events, "POT_REORDERED", Map.of(
+        addEvent(state, events, "SLOTTED_SPOON_RESOLVED", Map.of(
                 "playerId", actorId,
-                "cardCount", ordered.size()
+                "cardCount", pending.inspectedCards().size()
         ));
         addEvent(state, events, "ACTION_RESOLVED", Map.of(
                 "actionType", NotInMyPotActionType.SLOTTED_SPOON.name()
@@ -639,8 +620,13 @@ public final class NotInMyPotRulesEngine {
             NotInMyPotGameState state,
             NotInMyPotPendingAction pending
     ) {
+        state.setTurnDeadline(null);
         state.setPendingAction(pending);
         state.setPhase(NotInMyPotPhase.RESOLVING_ACTION);
+    }
+
+    private static Instant pendingDeadline(NotInMyPotGameState state) {
+        return Instant.now().plusSeconds(state.getSettings().turnSeconds());
     }
 
     private static void finishRegularTurn(
@@ -728,6 +714,7 @@ public final class NotInMyPotRulesEngine {
             state.incrementTurnNumber();
             state.setTurnHasActed(false);
             state.setPhase(NotInMyPotPhase.PLAYING);
+            state.setTurnDeadline(Instant.now().plusSeconds(state.getSettings().turnSeconds()));
             addEvent(state, events, "TURN_STARTED", Map.of(
                     "playerId", candidate.getPlayerId(),
                     "turnNumber", state.getTurnNumber()
@@ -795,6 +782,13 @@ public final class NotInMyPotRulesEngine {
     ) {
         NotInMyPotPendingAction pending = state.getPendingAction();
         if (pending == null) {
+            NotInMyPotPlayerState actor = state.requirePlayer(state.getCurrentPlayerId());
+            state.setTurnDeadline(null);
+            addEvent(state, events, "TURN_TIMED_OUT", Map.of(
+                    "playerId", actor.getPlayerId(),
+                    "turnNumber", state.getTurnNumber()
+            ));
+            advanceTurn(state, actor.getPlayerId(), events);
             return;
         }
         NotInMyPotPlayerState actor = state.requirePlayer(pending.actorPlayerId());
@@ -831,11 +825,10 @@ public final class NotInMyPotRulesEngine {
                     }
                 }
             }
-            case REORDER_POT_CARDS -> {
-                putOnPotTop(state, pending.inspectedCards());
+            case INSPECT_SHUFFLED_POT -> {
                 state.setPendingAction(null);
                 state.setPhase(NotInMyPotPhase.PLAYING);
-                addEvent(state, events, "POT_REORDERED", Map.of(
+                addEvent(state, events, "SLOTTED_SPOON_RESOLVED", Map.of(
                         "playerId", actor.getPlayerId(),
                         "cardCount", pending.inspectedCards().size(),
                         "automatic", true
@@ -864,11 +857,10 @@ public final class NotInMyPotRulesEngine {
             RandomSource random,
             List<NotInMyPotEvent> events
     ) {
-        if (pending.type() == NotInMyPotPendingType.REORDER_POT_CARDS) {
-            putOnPotTop(state, pending.inspectedCards());
+        if (pending.type() == NotInMyPotPendingType.INSPECT_SHUFFLED_POT) {
             state.setPendingAction(null);
             state.setPhase(NotInMyPotPhase.PLAYING);
-            addEvent(state, events, "POT_REORDERED", Map.of(
+            addEvent(state, events, "SLOTTED_SPOON_RESOLVED", Map.of(
                     "playerId", playerId,
                     "cardCount", pending.inspectedCards().size(),
                     "automatic", true
@@ -896,20 +888,6 @@ public final class NotInMyPotRulesEngine {
         state.setPendingAction(null);
         state.setPhase(NotInMyPotPhase.PLAYING);
         addEvent(state, events, "ACTION_RESOLVED", Map.of("automatic", true));
-    }
-
-    private static List<NotInMyPotCard> cardsByIds(
-            List<NotInMyPotCard> cards,
-            List<String> ids
-    ) {
-        List<NotInMyPotCard> result = new ArrayList<>();
-        for (String id : ids) {
-            cards.stream()
-                    .filter(card -> card.cardId().equals(id))
-                    .findFirst()
-                    .ifPresent(result::add);
-        }
-        return result;
     }
 
     /** Adds a list expressed in top-to-bottom order to the top of the pot. */

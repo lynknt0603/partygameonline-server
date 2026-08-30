@@ -1,6 +1,7 @@
 package com.partygameonline.realtime;
 
 import com.partygameonline.game.nob.domain.NobEvent;
+import com.partygameonline.game.wheresthebone.domain.WheresTheBoneEvent;
 import com.partygameonline.room.api.dto.RoomResponse;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
@@ -114,13 +115,21 @@ public class WebSocketRoomRealtimePublisher implements RoomRealtimePublisher {
     static Map<String, Object> gameEventsPayload(List<Object> events) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("actorPlayerId", null);
-        payload.put("events", events == null
-                ? List.of()
-                : events.stream().map(WebSocketRoomRealtimePublisher::sanitizeEvent).toList());
+        boolean wheresTheBone = events != null && events.stream().anyMatch(WheresTheBoneEvent.class::isInstance);
+        payload.put("events", wheresTheBone
+                ? List.of(new WheresTheBoneEvent("STATE_CHANGED", Map.of()))
+                : events == null
+                        ? List.of()
+                        : events.stream().map(WebSocketRoomRealtimePublisher::sanitizeEvent).toList());
         return payload;
     }
 
     static Object sanitizeEvent(Object event) {
+        if (event instanceof WheresTheBoneEvent boneEvent) {
+            // Defensive fallback for callers that sanitize a single event. The
+            // shared envelope collapses all private game events to STATE_CHANGED.
+            return new WheresTheBoneEvent("STATE_CHANGED", Map.of());
+        }
         if (!(event instanceof NobEvent nobEvent)) {
             return event;
         }

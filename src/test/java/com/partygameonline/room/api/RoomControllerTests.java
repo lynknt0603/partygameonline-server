@@ -272,6 +272,58 @@ class RoomControllerTests {
     }
 
     @Test
+    void hostCanUpdateNotInMyPotTurnTimerAndActionHistoryBeforeStart() throws Exception {
+        Guest host = guest("Linh");
+        Guest joiner = guest("Minh");
+        MvcResult created = mockMvc.perform(post("/api/v1/rooms")
+                        .session(host.session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"gameId":"not-in-my-pot","name":"Kitchen","maxPlayers":4}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.settings.notInMyPot.turnSeconds").value(30))
+                .andExpect(jsonPath("$.settings.notInMyPot.showActionHistory").value(true))
+                .andReturn();
+        String roomId = read(created, "$.id");
+
+        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
+                        .session(host.session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"notInMyPot":{"turnSeconds":45,"showActionHistory":false}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.notInMyPot.turnSeconds").value(45))
+                .andExpect(jsonPath("$.settings.notInMyPot.showActionHistory").value(false))
+                .andExpect(jsonPath("$.settings.locked").value(false));
+
+        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
+                        .session(host.session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"notInMyPot":{"turnSeconds":45,"showActionHistory":false},"locked":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.locked").value(true));
+
+        mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
+                        .session(joiner.session)
+                        .with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("ROOM_LOCKED"));
+
+        mockMvc.perform(get("/api/v1/rooms").session(joiner.session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.hasItem(roomId)
+                )));
+    }
+
+    @Test
     void roomsRequireSession() throws Exception {
         mockMvc.perform(get("/api/v1/rooms"))
                 .andExpect(status().isUnauthorized());

@@ -89,8 +89,10 @@ pot is bottom-to-top and card values are revealed only after `GAME_OVER`.
 An action-resolution view has `pendingAction.type`:
 
 - `SELECT_TARGET`: `allowedTargetPlayerIds` is public and the actor chooses one.
-- `REORDER_POT_CARDS`: only the actor receives `privateInspectedCards` and its
-  `allowedCardIds`; submit the same cards in the desired top-to-bottom order.
+- `INSPECT_SHUFFLED_POT`: the server removes the three most recently played cards from
+  the top of the LIFO pot, shuffles and replaces only those cards, then independently
+  shuffles the actor-only `privateInspectedCards` view. The actor cannot infer the real
+  pot order and only acknowledges after viewing.
 - `RETURN_SHOPPING_CARDS`: only the actor receives the allowed hand card ids; submit
   exactly two cards in top-to-second order.
 
@@ -141,8 +143,7 @@ target's hand and draws three replacement cards without revealing them.
 
 ```json
 {
-  "type": "REORDER_POT_CARDS",
-  "cardIds": ["NIMP-I-SALT-02", "NIMP-I-MEAT-07"]
+  "type": "ACKNOWLEDGE_SLOTTED_SPOON"
 }
 ```
 
@@ -203,7 +204,7 @@ take a turn, or declare the pot.
 
 Public event types include `TURN_STARTED`, `INGREDIENT_DECLARED`, `ACTION_STARTED`,
 `TARGET_SELECTION_REQUIRED`, `PLAYER_DOOR_UPDATED`, `PLAYER_EXPELLED`,
-`SCOOP_OUT_RESOLVED`, `POT_REORDER_REQUIRED`, `POT_REORDERED`,
+`SCOOP_OUT_RESOLVED`, `SLOTTED_SPOON_INSPECTION_REQUIRED`, `SLOTTED_SPOON_RESOLVED`,
 `EMERGENCY_SHOPPING_RESOLVED`, `SHOPPING_RETURN_REQUIRED`, `SHOPPING_CARDS_RETURNED`,
 `TRASH_OUT_RESOLVED`, `POT_REVEALED`, `ACTION_TIMED_OUT`, and `GAME_ENDED`.
 

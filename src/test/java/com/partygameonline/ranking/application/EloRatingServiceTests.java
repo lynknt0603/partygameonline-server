@@ -106,6 +106,26 @@ class EloRatingServiceTests {
     }
 
     @Test
+    void notInMyPotHasNoRatingFloorAndDoesNotChangeNobRating() {
+        List<String> playerIds = List.of("winner-1", "winner-2", "winner-3", "loser");
+        UserGameStatisticEntity winner1 = UserGameStatisticEntity.newStatistic("winner-1", NotInMyPotGameManifest.ID);
+        UserGameStatisticEntity winner2 = UserGameStatisticEntity.newStatistic("winner-2", NotInMyPotGameManifest.ID);
+        UserGameStatisticEntity winner3 = UserGameStatisticEntity.newStatistic("winner-3", NotInMyPotGameManifest.ID);
+        UserGameStatisticEntity loser = UserGameStatisticEntity.newStatistic("loser", NotInMyPotGameManifest.ID);
+        loser.applyRatingDelta(-4900);
+        when(repository.findByUserIdAndGameCodeForUpdate("winner-1", NotInMyPotGameManifest.ID)).thenReturn(Optional.of(winner1));
+        when(repository.findByUserIdAndGameCodeForUpdate("winner-2", NotInMyPotGameManifest.ID)).thenReturn(Optional.of(winner2));
+        when(repository.findByUserIdAndGameCodeForUpdate("winner-3", NotInMyPotGameManifest.ID)).thenReturn(Optional.of(winner3));
+        when(repository.findByUserIdAndGameCodeForUpdate("loser", NotInMyPotGameManifest.ID)).thenReturn(Optional.of(loser));
+
+        service.completeNotInMyPotMatch(playerIds, Set.of("winner-1", "winner-2", "winner-3"));
+
+        assertThat(loser.getEloNotInMyPot()).isEqualTo(-50);
+        assertThat(loser.getEloNob()).isEqualTo(UserGameStatisticEntity.DEFAULT_ELO);
+        assertThat(loser.getElo()).isEqualTo(100);
+    }
+
+    @Test
     void rankedRoundRewardsEveryPlacementAndStaysZeroSum() {
         mockDefaultRatings("A", "B", "C", "D");
 

@@ -112,6 +112,20 @@ public class UserGameStatisticEntity {
         this.updatedAt = Instant.now();
     }
 
+    /**
+     * Applies the Not In My Pot rating change without imposing a floor. NOB
+     * continues to use {@link #applyRatingDelta(int)} and its existing rules.
+     */
+    public void applyNotInMyPotRatingDelta(int delta) {
+        if (!NOT_IN_MY_POT_GAME.equals(gameCode)) {
+            throw new IllegalStateException("Not In My Pot rating applied to another game");
+        }
+        int nextElo = Math.addExact(getEloForGame(), delta);
+        this.eloNotInMyPot = nextElo;
+        this.highestEloNotInMyPot = Math.max(this.highestEloNotInMyPot, nextElo);
+        this.updatedAt = Instant.now();
+    }
+
     public void completeMatch(boolean winner) {
         this.totalMatch += 1;
         if (winner) {

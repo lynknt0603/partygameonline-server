@@ -86,7 +86,7 @@ public class NotInMyPotGameProjector implements GameStateProjector<NotInMyPotGam
                 );
         List<NotInMyPotCardView> inspected = inGame
                 && pending != null
-                && pending.type() == NotInMyPotPendingType.REORDER_POT_CARDS
+                && pending.type() == NotInMyPotPendingType.INSPECT_SHUFFLED_POT
                 && playerId.equals(pending.actorPlayerId())
                 ? pending.inspectedCards().stream().map(NotInMyPotGameProjector::cardView).toList()
                 : List.of();
@@ -95,9 +95,12 @@ public class NotInMyPotGameProjector implements GameStateProjector<NotInMyPotGam
                 : List.of();
         Map<String, String> publicRoleView = new LinkedHashMap<>();
         publicRoles.forEach((id, role) -> publicRoleView.put(id, role.name()));
-        List<NotInMyPotEventView> eventView = state.getPublicEvents().stream()
+        boolean actionHistoryVisible = state.getSettings().showActionHistory();
+        List<NotInMyPotEventView> eventView = actionHistoryVisible
+                ? state.getPublicEvents().stream()
                 .map(event -> new NotInMyPotEventView(event.type(), event.payload()))
-                .toList();
+                .toList()
+                : List.of();
         boolean canAct = inGame
                 && self.isActive()
                 && state.getPhase() == NotInMyPotPhase.PLAYING
@@ -116,6 +119,8 @@ public class NotInMyPotGameProjector implements GameStateProjector<NotInMyPotGam
                 state.isFinished(),
                 state.getCurrentPlayerId(),
                 state.getTurnNumber(),
+                state.getTurnDeadline(),
+                actionHistoryVisible,
                 state.getTargetScore(),
                 state.getWinnerFaction() == null ? null : state.getWinnerFaction().name(),
                 state.getWinnerPlayerIds(),
