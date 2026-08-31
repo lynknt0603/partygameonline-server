@@ -64,8 +64,10 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         List<String> candidates = inGame && viewerRole == WheresTheBoneRole.BONE_THIEF
                 && state.getPhase() == WheresTheBonePhase.PACK_SELECTION
                 ? List.copyOf(state.getPendingPackCandidates()) : List.of();
+        List<WheresTheBonePeek> viewerPeeks = inGame
+                ? state.getPeekResults().getOrDefault(viewerId, List.of()) : List.of();
         Map<String, List<Integer>> peekResults = inGame
-                ? state.getPeekResults().getOrDefault(viewerId, List.of()).stream()
+                ? viewerPeeks.stream()
                 .collect(Collectors.toMap(WheresTheBonePeek::targetPlayerId, WheresTheBonePeek::wakeHours,
                         (left, right) -> right, LinkedHashMap::new))
                 : Map.of();
@@ -98,6 +100,18 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         Integer boneHour = visibleBone && (state.isFinished() || knowsTheftIdentity)
                 ? state.getBoneTakenHour() : null;
         int hour = WheresTheBonePhase.NIGHT_HOUR.name().equals(phase) ? state.getCurrentHour() : 0;
+        boolean discussionSkipPending = state.getPhase() == WheresTheBonePhase.DISCUSSION
+                && state.getDiscussionSkipRequesterId() != null;
+        int discussionSkipAgreeCount = discussionSkipPending
+                ? (int) state.activePlayerIds().stream()
+                .filter(id -> Boolean.TRUE.equals(state.getDiscussionSkipResponses().get(id)))
+                .count() : 0;
+        int discussionSkipResponseCount = discussionSkipPending
+                ? (int) state.activePlayerIds().stream()
+                .filter(state.getDiscussionSkipResponses()::containsKey)
+                .count() : 0;
+        int discussionSkipRequiredAgreeCount = discussionSkipPending
+                ? state.activePlayerIds().size() / 2 + 1 : 0;
 
         List<String> legal = legalActions(state, viewerId, viewerRole);
         return new WheresTheBoneView(
@@ -122,6 +136,7 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
                 inGame && state.getPlayerIds().size() == 4 && state.hasSelectedWake(viewerId)
                         ? state.wakeFor(viewerId) : List.of(),
                 peekResults,
+                viewerPeeks.size(),
                 clues,
                 coAwake,
                 inGame ? state.getWitnessedBoneTakenHours().getOrDefault(viewerId, List.of()) : List.of(),
@@ -132,6 +147,11 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
                 inGame && viewerRole == WheresTheBoneRole.WHITE_DOG && state.getPackmates().contains(viewerId),
                 candidates,
                 inGame && viewerRole == WheresTheBoneRole.BONE_THIEF ? state.getPendingPackCount() : 0,
+                discussionSkipPending ? state.getDiscussionSkipRequesterId() : null,
+                discussionSkipAgreeCount,
+                discussionSkipResponseCount,
+                discussionSkipRequiredAgreeCount,
+                discussionSkipPending && inGame ? state.getDiscussionSkipResponses().get(viewerId) : null,
                 state.isFinished() ? state.getWinnerPlayerIds() : List.of(),
                 state.isFinished() ? faction : null,
                 votes,
@@ -212,7 +232,9 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
 
     private static boolean isPublicHistoryEvent(String type) {
         return switch (type) {
-            case "GAME_STARTED", "BONE_TAKEN", "VOTING_STARTED", "VOTE_CAST",
+            case "GAME_STARTED", "BONE_TAKEN", "DISCUSSION_SKIP_REQUESTED",
+                    "DISCUSSION_SKIP_APPROVED", "DISCUSSION_SKIP_REJECTED", "DISCUSSION_SKIP_CANCELLED",
+                    "VOTING_STARTED", "VOTE_CAST",
                     "GAME_FINISHED", "PLAYER_ABANDONED" -> true;
             default -> false;
         };
@@ -247,8 +269,15 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         if (state.getPhase() == WheresTheBonePhase.PACK_SELECTION && role == WheresTheBoneRole.BONE_THIEF) {
             return List.of(WheresTheBoneActionType.SELECT_PACKMATE.name());
         }
-        if (state.getPhase() == WheresTheBonePhase.DISCUSSION && playerId.equals(state.getHostPlayerId())) {
-            return List.of(WheresTheBoneActionType.START_VOTE.name());
+        if (state.getPhase() == WheresTheBonePhase.DISCUSSION) {
+            if (state.getDiscussionSkipRequesterId() != null) {
+                return state.getDiscussionSkipResponses().containsKey(playerId)
+                        ? List.of()
+                        : List.of(WheresTheBoneActionType.RESPOND_SKIP_DISCUSSION.name());
+            }
+            if (!state.getDiscussionSkipRequesters().contains(playerId)) {
+                return List.of(WheresTheBoneActionType.REQUEST_SKIP_DISCUSSION.name());
+            }
         }
         if (state.getPhase() == WheresTheBonePhase.VOTING && !state.getVotes().containsKey(playerId)) {
             return List.of(WheresTheBoneActionType.VOTE.name());

@@ -150,6 +150,49 @@ class WheresTheBoneGameEngineTests {
     }
 
     @Test
+    void soleWitnessKeepsTheTheftClueAfterBecomingACursedPackmate() {
+        WheresTheBoneGameState state = state(5);
+        assignRoles(state, false);
+        state.getWakeHours().put("p1", List.of(2));
+        state.getWakeHours().put("p2", List.of(2));
+        state.getWakeHours().put("p3", List.of(3));
+        state.getWakeHours().put("p4", List.of(4));
+        state.getWakeHours().put("p5", List.of(5));
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(2);
+        state.setDeadline(Instant.now().plusSeconds(10));
+
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TAKE_BONE, null), new SeededRandomSource(15));
+        WheresTheBoneView cursedWitness = projector.project(state, player("p2"));
+
+        assertThat(cursedWitness.myRole()).isEqualTo(WheresTheBoneRole.PACKMATE.name());
+        assertThat(cursedWitness.myWitnessedBoneTakenHours()).containsExactly(2);
+        assertThat(cursedWitness.knownBoneThiefId()).isEqualTo("p1");
+        assertThat(cursedWitness.boneTakenBy()).isEqualTo("p1");
+    }
+
+    @Test
+    void wakingAloneIsRetainedInThePrivateNightJournal() {
+        WheresTheBoneGameState state = state(5);
+        assignRoles(state, false);
+        state.getWakeHours().put("p1", List.of(3));
+        state.getWakeHours().put("p2", List.of(2));
+        state.getWakeHours().put("p3", List.of(4));
+        state.getWakeHours().put("p4", List.of(5));
+        state.getWakeHours().put("p5", List.of(6));
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(1);
+        state.setDeadline(Instant.now().minusMillis(1));
+
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(16));
+        WheresTheBoneView loneDog = projector.project(state, player("p2"));
+
+        assertThat(loneDog.myCoAwakeRecords()).hasSize(1);
+        assertThat(loneDog.myCoAwakeRecords().getFirst().hour()).isEqualTo(2);
+        assertThat(loneDog.myCoAwakeRecords().getFirst().playerIds()).isEmpty();
+    }
+
+    @Test
     void postNightPackmateCountsMatchSixSevenAndEightPlayerRules() {
         assertThat(requiredPackmatesAfterNight(6)).isEqualTo(1);
         assertThat(requiredPackmatesAfterNight(7)).isEqualTo(2);
@@ -220,6 +263,88 @@ class WheresTheBoneGameEngineTests {
         assertThat(state.getWinnerFaction()).isEqualTo(WheresTheBoneRole.YARD_DOG);
     }
 
+    @Test
+    void everyPlayerCanRequestDiscussionSkipAndRequesterAutomaticallyAgrees() {
+        WheresTheBoneGameState state = discussionState(4);
+
+        assertThat(projector.project(state, player("p1")).legalActions())
+                .containsExactly(WheresTheBoneActionType.REQUEST_SKIP_DISCUSSION.name());
+        assertThat(projector.project(state, player("p3")).legalActions())
+                .containsExactly(WheresTheBoneActionType.REQUEST_SKIP_DISCUSSION.name());
+
+        WheresTheBoneAction request = skipRequest("skip-request-p2");
+        assertThat(engine.validate(state, player("p2"), request).valid()).isTrue();
+        engine.apply(state, player("p2"), request, new SeededRandomSource(11));
+
+        WheresTheBoneView requesterView = projector.project(state, player("p2"));
+        WheresTheBoneView responderView = projector.project(state, player("p1"));
+        assertThat(requesterView.discussionSkipRequesterId()).isEqualTo("p2");
+        assertThat(requesterView.discussionSkipAgreeCount()).isEqualTo(1);
+        assertThat(requesterView.discussionSkipResponseCount()).isEqualTo(1);
+        assertThat(requesterView.discussionSkipRequiredAgreeCount()).isEqualTo(3);
+        assertThat(requesterView.myDiscussionSkipResponse()).isTrue();
+        assertThat(requesterView.legalActions()).isEmpty();
+        assertThat(responderView.myDiscussionSkipResponse()).isNull();
+        assertThat(responderView.legalActions())
+                .containsExactly(WheresTheBoneActionType.RESPOND_SKIP_DISCUSSION.name());
+    }
+
+    @Test
+    void discussionSkipNeedsStrictMajorityAndStartsVotingImmediately() {
+        WheresTheBoneGameState state = discussionState(4);
+        engine.apply(state, player("p1"), skipRequest("majority-request-p1"), new SeededRandomSource(12));
+        engine.apply(state, player("p2"), skipResponse("skip-p2", false), new SeededRandomSource(12));
+        engine.apply(state, player("p3"), skipResponse("skip-p3", true), new SeededRandomSource(12));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.DISCUSSION);
+        assertThat(state.getDiscussionSkipRequesterId()).isEqualTo("p1");
+
+        engine.apply(state, player("p4"), skipResponse("skip-p4", true), new SeededRandomSource(12));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.VOTING);
+        assertThat(state.getDiscussionSkipRequesterId()).isNull();
+        assertThat(state.getDiscussionSkipResponses()).isEmpty();
+        assertThat(state.getEvents()).extracting(WheresTheBoneEvent::type)
+                .contains("DISCUSSION_SKIP_APPROVED", "VOTING_STARTED");
+    }
+
+    @Test
+    void discussionTimeoutCancelsPendingSkipAndStartsOfficialVoting() {
+        WheresTheBoneGameState state = discussionState(8);
+        engine.apply(state, player("p1"), skipRequest("timeout-request-p1"), new SeededRandomSource(14));
+        state.setDeadline(Instant.now().minusMillis(1));
+
+        WheresTheBoneAction timeout = action(WheresTheBoneActionType.TIMEOUT, null);
+        assertThat(engine.validate(state, player("p1"), timeout).valid()).isTrue();
+        engine.apply(state, player("p1"), timeout, new SeededRandomSource(14));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.VOTING);
+        assertThat(state.getDiscussionSkipRequesterId()).isNull();
+        assertThat(state.getDiscussionSkipResponses()).isEmpty();
+        assertThat(projector.project(state, player("p1")).legalActions())
+                .containsExactly(WheresTheBoneActionType.VOTE.name());
+        assertThat(state.getEvents()).extracting(WheresTheBoneEvent::type)
+                .containsSubsequence("DISCUSSION_SKIP_CANCELLED", "VOTING_STARTED");
+    }
+
+    @Test
+    void rejectedDiscussionSkipLetsAnotherPlayerRequestButNotTheSamePlayer() {
+        WheresTheBoneGameState state = discussionState(4);
+        engine.apply(state, player("p1"), skipRequest("rejected-request-p1"), new SeededRandomSource(13));
+        engine.apply(state, player("p2"), skipResponse("reject-p2", false), new SeededRandomSource(13));
+        engine.apply(state, player("p3"), skipResponse("reject-p3", false), new SeededRandomSource(13));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.DISCUSSION);
+        assertThat(state.getDiscussionSkipRequesterId()).isNull();
+        assertThat(engine.validate(state, player("p1"), skipRequest("retry-request-p1")).valid())
+                .isFalse();
+        assertThat(engine.validate(state, player("p4"), skipRequest("skip-request-p4")).valid())
+                .isTrue();
+        assertThat(projector.project(state, player("p1")).legalActions()).isEmpty();
+        assertThat(projector.project(state, player("p4")).legalActions())
+                .containsExactly(WheresTheBoneActionType.REQUEST_SKIP_DISCUSSION.name());
+    }
+
     private WheresTheBoneGameState createGame(int count, Map<String, Object> settings) {
         List<String> ids = ids(count);
         Map<String, String> names = names(ids);
@@ -242,6 +367,14 @@ class WheresTheBoneGameEngineTests {
         return state;
     }
 
+    private static WheresTheBoneGameState discussionState(int count) {
+        WheresTheBoneGameState state = state(count);
+        assignRoles(state, false);
+        state.setPhase(WheresTheBonePhase.DISCUSSION);
+        state.setDeadline(Instant.now().plusSeconds(180));
+        return state;
+    }
+
     private static void assignRoles(WheresTheBoneGameState state, boolean whiteDog) {
         state.getRoles().put("p1", WheresTheBoneRole.BONE_THIEF);
         for (String id : state.getPlayerIds()) {
@@ -251,7 +384,31 @@ class WheresTheBoneGameEngineTests {
     }
 
     private static WheresTheBoneAction action(WheresTheBoneActionType type, String target) {
-        return new WheresTheBoneAction(type, "cmd-" + type + "-" + target, null, null, target, List.of());
+        return new WheresTheBoneAction(type, "cmd-" + type + "-" + target, null, null, target, List.of(), null);
+    }
+
+    private static WheresTheBoneAction skipResponse(String commandId, boolean agree) {
+        return new WheresTheBoneAction(
+                WheresTheBoneActionType.RESPOND_SKIP_DISCUSSION,
+                commandId,
+                null,
+                null,
+                null,
+                List.of(),
+                agree
+        );
+    }
+
+    private static WheresTheBoneAction skipRequest(String commandId) {
+        return new WheresTheBoneAction(
+                WheresTheBoneActionType.REQUEST_SKIP_DISCUSSION,
+                commandId,
+                null,
+                null,
+                null,
+                List.of(),
+                null
+        );
     }
 
     private int requiredPackmatesAfterNight(int count) {

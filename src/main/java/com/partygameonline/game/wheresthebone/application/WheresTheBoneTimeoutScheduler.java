@@ -9,6 +9,7 @@ import com.partygameonline.room.domain.RoomId;
 import com.partygameonline.room.infrastructure.RoomRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -39,19 +40,32 @@ public class WheresTheBoneTimeoutScheduler {
     @Scheduled(fixedDelay = 500)
     public void tick() {
         Instant now = Instant.now();
-        for (GameSession session : sessionRepository.findAll()) {
-            if (session.isFinished() || !WheresTheBoneGameManifest.ID.equals(session.getGameId())
-                    || !(session.getState() instanceof WheresTheBoneGameState state)
-                    || state.getDeadline() == null || state.getDeadline().isAfter(now)) {
-                continue;
-            }
-            String actorId = roomRepository.findById(RoomId.parse(session.getRoomId()))
-                    .flatMap(room -> room.getPlayers().stream().findFirst())
-                    .map(player -> player.getPlayerId())
-                    .orElse(null);
-            if (actorId == null) continue;
-            String commandId = "wheres-the-bone-timeout-" + UUID.randomUUID();
+        Collection<GameSession> sessions;
+        try {
+            sessions = sessionRepository.findAll();
+        } catch (RuntimeException ex) {
+            log.error("Where's the Bone timeout scan failed", ex);
+            return;
+        }
+        for (GameSession session : sessions) {
             try {
+                if (session.isFinished() || !WheresTheBoneGameManifest.ID.equals(session.getGameId())
+                        || !(session.getState() instanceof WheresTheBoneGameState state)
+                        || state.getDeadline() == null || state.getDeadline().isAfter(now)) {
+                    continue;
+                }
+                String actorId = roomRepository.findById(RoomId.parse(session.getRoomId()))
+                        .flatMap(room -> room.getPlayers().stream().findFirst())
+                        .map(player -> player.getPlayerId())
+                        .orElse(null);
+                if (actorId == null) {
+                    log.warn("Where's the Bone timeout due but no room player found roomId={} deadline={} phase={} hour={}",
+                            session.getRoomId(), state.getDeadline(), state.getPhase(), state.getCurrentHour());
+                    continue;
+                }
+                String commandId = "wheres-the-bone-timeout-" + UUID.randomUUID();
+                log.debug("Where's the Bone timeout due roomId={} phase={} hour={} deadline={} version={}",
+                        session.getRoomId(), state.getPhase(), state.getCurrentHour(), state.getDeadline(), state.getVersion());
                 dispatcher.dispatch(
                         PlayerPrincipal.guest(actorId, state.displayName(actorId)),
                         session.getRoomId(),
@@ -59,7 +73,7 @@ public class WheresTheBoneTimeoutScheduler {
                         Map.of("type", "TIMEOUT", "commandId", commandId, "expectedVersion", state.getVersion())
                 );
             } catch (RuntimeException ex) {
-                log.warn("Where's the Bone timeout skipped roomId={} reason={}", session.getRoomId(), ex.getMessage());
+                log.warn("Where's the Bone timeout skipped roomId={} reason={}", session.getRoomId(), ex.toString(), ex);
             }
         }
     }

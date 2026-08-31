@@ -95,7 +95,8 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
                 integerValue(payload.get("expectedVersion")),
                 integerValue(payload.containsKey("hour") ? payload.get("hour") : payload.get("selectedWakeTime")),
                 stringValue(payload.get("targetPlayerId")),
-                stringList(payload, "targetPlayerIds", "targetIds")
+                stringList(payload, "targetPlayerIds", "targetIds"),
+                booleanValue(payload.get("agree"))
         );
     }
 
@@ -121,8 +122,8 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
             case PEEK_WAKE_TIME -> validatePeek(state, playerId, action.targetPlayerId());
             case WAIT -> validateNightAction(state, playerId, false, true);
             case SELECT_PACKMATE -> validatePackSelection(state, playerId, action.targetPlayerIds(), action.targetPlayerId());
-            case START_VOTE -> state.getPhase() == WheresTheBonePhase.DISCUSSION && state.getHostPlayerId().equals(playerId)
-                    ? ValidationResult.ok() : ValidationResult.reject("ACTION_NOT_ALLOWED", "Only the host can start voting");
+            case REQUEST_SKIP_DISCUSSION -> validateDiscussionSkipRequest(state, playerId);
+            case RESPOND_SKIP_DISCUSSION -> validateDiscussionSkipResponse(state, playerId, action.agree());
             case VOTE -> validateVote(state, playerId, action.targetPlayerId());
             case TIMEOUT -> ValidationResult.ok();
         };
@@ -144,7 +145,8 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
             case PEEK_WAKE_TIME -> peek(state, actor.playerId(), action.targetPlayerId(), events);
             case WAIT -> waitForHour(state, actor.playerId(), events);
             case SELECT_PACKMATE -> selectPackmates(state, action, events);
-            case START_VOTE -> startVoting(state, events);
+            case REQUEST_SKIP_DISCUSSION -> requestDiscussionSkip(state, actor.playerId(), events);
+            case RESPOND_SKIP_DISCUSSION -> respondToDiscussionSkip(state, actor.playerId(), action.agree(), events);
             case VOTE -> vote(state, actor.playerId(), action.targetPlayerId(), events);
             case TIMEOUT -> timeout(state, random, events);
         }
@@ -176,6 +178,15 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
         }
         state.getPendingPackCandidates().remove(playerId);
         state.setPendingPackCount(Math.min(state.getPendingPackCount(), state.getPendingPackCandidates().size()));
+        if (state.getPhase() == WheresTheBonePhase.DISCUSSION && state.getDiscussionSkipRequesterId() != null) {
+            if (state.getDiscussionSkipRequesterId().equals(playerId)) {
+                clearDiscussionSkip(state);
+                events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_CANCELLED", Map.of()));
+            } else {
+                state.getDiscussionSkipResponses().remove(playerId);
+                evaluateDiscussionSkip(state, events);
+            }
+        }
         if (state.getPhase() == WheresTheBonePhase.VOTING && allActivePlayersVoted(state)) {
             resolveVotes(state, events);
         }
@@ -244,6 +255,36 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
         return ValidationResult.ok();
     }
 
+    private static ValidationResult validateDiscussionSkipRequest(WheresTheBoneGameState state, String playerId) {
+        if (state.getPhase() != WheresTheBonePhase.DISCUSSION) {
+            return ValidationResult.reject("ACTION_NOT_ALLOWED", "Discussion can only be skipped during discussion");
+        }
+        if (state.getDiscussionSkipRequesterId() != null) {
+            return ValidationResult.reject("DISCUSSION_SKIP_PENDING", "Another skip request is already open");
+        }
+        if (state.getDiscussionSkipRequesters().contains(playerId)) {
+            return ValidationResult.reject("DISCUSSION_SKIP_ALREADY_REQUESTED", "You can only request to skip discussion once per game");
+        }
+        return ValidationResult.ok();
+    }
+
+    private static ValidationResult validateDiscussionSkipResponse(
+            WheresTheBoneGameState state,
+            String playerId,
+            Boolean agree
+    ) {
+        if (state.getPhase() != WheresTheBonePhase.DISCUSSION || state.getDiscussionSkipRequesterId() == null) {
+            return ValidationResult.reject("ACTION_NOT_ALLOWED", "There is no discussion skip request to answer");
+        }
+        if (agree == null) {
+            return ValidationResult.reject("INVALID_SKIP_RESPONSE", "Choose agree or disagree");
+        }
+        if (state.getDiscussionSkipResponses().containsKey(playerId)) {
+            return ValidationResult.reject("DISCUSSION_SKIP_ALREADY_ANSWERED", "You already answered this request");
+        }
+        return ValidationResult.ok();
+    }
+
     private static void selectWakeTime(WheresTheBoneGameState state, String playerId, Integer hour, List<WheresTheBoneEvent> events) {
         state.getWakeHours().put(playerId, List.of(hour));
         events.add(WheresTheBoneEvent.of("WAKE_TIME_SELECTED", Map.of("playerId", playerId)));
@@ -295,7 +336,60 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
         events.add(WheresTheBoneEvent.of("PACKMATES_SELECTED", Map.of("count", selected.size())));
     }
 
+    private static void requestDiscussionSkip(
+            WheresTheBoneGameState state,
+            String playerId,
+            List<WheresTheBoneEvent> events
+    ) {
+        state.getDiscussionSkipRequesters().add(playerId);
+        state.setDiscussionSkipRequesterId(playerId);
+        state.getDiscussionSkipResponses().clear();
+        // Requesting the skip is itself an affirmative vote.
+        state.getDiscussionSkipResponses().put(playerId, true);
+        events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_REQUESTED", Map.of("playerId", playerId)));
+        evaluateDiscussionSkip(state, events);
+    }
+
+    private static void respondToDiscussionSkip(
+            WheresTheBoneGameState state,
+            String playerId,
+            boolean agree,
+            List<WheresTheBoneEvent> events
+    ) {
+        state.getDiscussionSkipResponses().put(playerId, agree);
+        events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_RESPONDED", Map.of("agree", agree)));
+        evaluateDiscussionSkip(state, events);
+    }
+
+    private static void evaluateDiscussionSkip(WheresTheBoneGameState state, List<WheresTheBoneEvent> events) {
+        List<String> active = state.activePlayerIds();
+        int required = active.size() / 2 + 1;
+        long agreeCount = active.stream()
+                .filter(id -> Boolean.TRUE.equals(state.getDiscussionSkipResponses().get(id)))
+                .count();
+        if (agreeCount >= required) {
+            clearDiscussionSkip(state);
+            events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_APPROVED", Map.of("agreeCount", agreeCount)));
+            startVoting(state, events);
+            return;
+        }
+
+        long disagreeCount = active.stream()
+                .filter(id -> Boolean.FALSE.equals(state.getDiscussionSkipResponses().get(id)))
+                .count();
+        if (active.size() - disagreeCount < required) {
+            clearDiscussionSkip(state);
+            events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_REJECTED", Map.of("agreeCount", agreeCount)));
+        }
+    }
+
+    private static void clearDiscussionSkip(WheresTheBoneGameState state) {
+        state.setDiscussionSkipRequesterId(null);
+        state.getDiscussionSkipResponses().clear();
+    }
+
     private static void startVoting(WheresTheBoneGameState state, List<WheresTheBoneEvent> events) {
+        clearDiscussionSkip(state);
         state.getVotes().clear();
         enterVoting(state);
         events.add(WheresTheBoneEvent.of("VOTING_STARTED", Map.of()));
@@ -332,9 +426,11 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
                 events.add(WheresTheBoneEvent.of("PACKMATES_AUTO_SELECTED", Map.of("count", selected.size())));
             }
             case DISCUSSION -> {
-                state.getVotes().clear();
-                enterVoting(state);
-                events.add(WheresTheBoneEvent.of("VOTING_STARTED", Map.of()));
+                if (state.getDiscussionSkipRequesterId() != null) {
+                    clearDiscussionSkip(state);
+                    events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_CANCELLED", Map.of()));
+                }
+                startVoting(state, events);
             }
             case VOTING -> resolveVotes(state, events);
             default -> { }
@@ -467,7 +563,7 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
 
     private static void recordCoAwake(WheresTheBoneGameState state) {
         Set<String> awake = state.awakePlayerIds();
-        if (awake.size() < 2) return;
+        if (awake.isEmpty()) return;
         for (String playerId : awake) {
             state.coAwakeFor(playerId).put(state.getCurrentHour(), awake.stream().filter(id -> !id.equals(playerId)).collect(Collectors.toCollection(LinkedHashSet::new)));
         }
@@ -524,5 +620,13 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
             return values.stream().filter(String.class::isInstance).map(String.class::cast).filter(value -> !value.isBlank()).toList();
         }
         return List.of();
+    }
+    private static Boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) return bool;
+        if (value instanceof String text) {
+            if ("true".equalsIgnoreCase(text.trim())) return true;
+            if ("false".equalsIgnoreCase(text.trim())) return false;
+        }
+        return null;
     }
 }

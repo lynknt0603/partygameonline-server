@@ -6,7 +6,8 @@ public enum WheresTheBoneActionType {
     PEEK_WAKE_TIME,
     WAIT,
     SELECT_PACKMATE,
-    START_VOTE,
+    REQUEST_SKIP_DISCUSSION,
+    RESPOND_SKIP_DISCUSSION,
     VOTE,
     TIMEOUT
 }

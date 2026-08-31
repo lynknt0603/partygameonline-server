@@ -8,7 +8,8 @@ public record WheresTheBoneAction(
         Integer expectedVersion,
         Integer hour,
         String targetPlayerId,
-        List<String> targetPlayerIds
+        List<String> targetPlayerIds,
+        Boolean agree
 ) {
     public WheresTheBoneAction {
         targetPlayerIds = targetPlayerIds == null ? List.of() : List.copyOf(targetPlayerIds);

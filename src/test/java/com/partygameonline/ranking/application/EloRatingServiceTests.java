@@ -126,6 +126,27 @@ class EloRatingServiceTests {
     }
 
     @Test
+    void notInMyPotForfeitAppliesLossWithoutRequiringAWinningTeam() {
+        UserGameStatisticEntity leaver = UserGameStatisticEntity.newStatistic(
+                "leaver",
+                NotInMyPotGameManifest.ID
+        );
+        when(repository.findByUserIdAndGameCodeForUpdate("leaver", NotInMyPotGameManifest.ID))
+                .thenReturn(Optional.of(leaver));
+
+        EloRatingService.EloMatchResult result = service.applyForfeit(
+                NotInMyPotGameManifest.ID,
+                "leaver"
+        );
+
+        assertThat(result.changes().get("leaver").eloDelta()).isEqualTo(-50);
+        assertThat(leaver.getEloNotInMyPot()).isEqualTo(4950);
+        assertThat(leaver.getTotalMatch()).isEqualTo(1);
+        assertThat(leaver.getTotalWin()).isZero();
+        assertThat(leaver.getEloNob()).isEqualTo(UserGameStatisticEntity.DEFAULT_ELO);
+    }
+
+    @Test
     void rankedRoundRewardsEveryPlacementAndStaysZeroSum() {
         mockDefaultRatings("A", "B", "C", "D");
 
