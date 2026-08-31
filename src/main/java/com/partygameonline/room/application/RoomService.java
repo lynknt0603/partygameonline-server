@@ -4,12 +4,6 @@ import com.partygameonline.common.UniqueDisplayNames;
 import com.partygameonline.common.error.ResourceNotFoundException;
 import com.partygameonline.game.core.GameManifest;
 import com.partygameonline.game.core.GameRegistry;
-import com.partygameonline.game.nob.NobGameManifest;
-import com.partygameonline.game.nob.domain.NobTimingSettings;
-import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
-import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
-import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
-import com.partygameonline.game.wheresthebone.domain.WheresTheBoneSettings;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomException;
 import com.partygameonline.room.domain.RoomId;
@@ -80,22 +74,9 @@ public class RoomService {
                         roomVisibility,
                         Instant.now()
                 );
-                if (NobGameManifest.ID.equals(game.id())) {
-                    room.replaceSettings(Map.of(
-                            "nob", NobTimingSettings.defaults().toMap(),
-                            "locked", false
-                    ));
-                } else if (NotInMyPotGameManifest.ID.equals(game.id())) {
-                    room.replaceSettings(Map.of(
-                            "notInMyPot", NotInMyPotSettings.defaults().toMap(),
-                            "locked", false
-                    ));
-                } else if (WheresTheBoneGameManifest.ID.equals(game.id())) {
-                    room.replaceSettings(Map.of(
-                            "wheresTheBone", WheresTheBoneSettings.defaults().toMap(),
-                            "locked", false
-                    ));
-                }
+                Map<String, Object> initialSettings = new LinkedHashMap<>(game.defaultRoomSettings());
+                initialSettings.put("locked", false);
+                room.replaceSettings(initialSettings);
                 roomRepository.save(room);
                 roomRepository.indexPlayer(principal.playerId(), roomId);
                 return room;
@@ -141,6 +122,13 @@ public class RoomService {
                     if (applied.result().finished()) {
                         room.markFinished();
                         matchHistoryService.recordIfFinished(room, session);
+                    } else {
+                        matchHistoryService.recordForfeit(
+                                room,
+                                session,
+                                principal.playerId(),
+                                principal.displayName()
+                        );
                     }
                     Map<String, Object> views = gameRuntimeService.projectViews(room, session);
                     realtimePublisher.gameEvents(
@@ -219,19 +207,17 @@ public class RoomService {
             if (!room.getHostPlayerId().equals(principal.playerId())) {
                 throw RoomException.notHost();
             }
+            GameManifest game = gameRegistry.findById(room.getGameId())
+                    .orElseThrow(RoomException::invalidSettings);
             Map<String, Object> next = new LinkedHashMap<>(room.getSettings());
             if (locked != null) {
                 next.put("locked", locked);
             }
-            if (NobGameManifest.ID.equals(room.getGameId())) {
-                next.put("nob", NobTimingSettings.fromMap(nobSettings).toMap());
-            } else if (NotInMyPotGameManifest.ID.equals(room.getGameId())) {
-                next.put("notInMyPot", NotInMyPotSettings.fromMap(notInMyPotSettings).toMap());
-            } else if (WheresTheBoneGameManifest.ID.equals(room.getGameId())) {
-                next.put("wheresTheBone", WheresTheBoneSettings.fromMap(wheresTheBoneSettings).toMap());
-            } else {
-                throw RoomException.invalidSettings();
-            }
+            Map<String, Object> requested = new LinkedHashMap<>();
+            requested.put("nob", nobSettings);
+            requested.put("notInMyPot", notInMyPotSettings);
+            requested.put("wheresTheBone", wheresTheBoneSettings);
+            next.putAll(game.normalizeRoomSettings(requested));
             room.replaceSettings(next);
             realtimePublisher.roomSettingsChanged(room);
             return room;
@@ -286,9 +272,7 @@ public class RoomService {
         return roomLocks.withRoom(roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
             GameManifest game = requireEnabledGame(room.getGameId());
-            int requiredPlayers = WheresTheBoneGameManifest.ID.equals(room.getGameId())
-                    ? room.getMaxPlayers()
-                    : game.minPlayers();
+            int requiredPlayers = game.requiredPlayers(room.getMaxPlayers());
             room.start(principal.playerId(), requiredPlayers);
             Optional<GameSession> session = gameRuntimeService.startGame(room);
             Map<String, Object> views = session

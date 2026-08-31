@@ -1,15 +1,14 @@
 package com.partygameonline.game.runtime;
 
 import com.partygameonline.game.core.GameConfig;
+import com.partygameonline.game.core.GameEloChange;
 import com.partygameonline.game.core.GameRegistry;
 import com.partygameonline.game.core.GameResult;
 import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.core.RandomSource;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
-import com.partygameonline.game.nob.domain.NobCompletedRound;
-import com.partygameonline.game.nob.domain.NobEloChange;
-import com.partygameonline.game.nob.domain.NobGameState;
+import com.partygameonline.game.core.GameRoundEloSource;
 import com.partygameonline.ranking.application.EloRatingService;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
@@ -140,31 +139,28 @@ public class GameRuntimeService {
     }
 
     private void applyRoundElo(GameSession session, Object nextState) {
-        if (eloRatingService == null || !(nextState instanceof NobGameState nob)) {
+        if (eloRatingService == null || !(nextState instanceof GameRoundEloSource source)) {
             return;
         }
-        for (NobCompletedRound round : nob.getCompletedRounds()) {
+        for (var round : source.completedEloRounds()) {
             if (session.isEloRoundProcessed(round.roundNumber())) {
                 continue;
             }
             List<EloRatingService.PlayerOutcome> outcomes = round.players().stream()
                     .map(player -> new EloRatingService.PlayerOutcome(
-                            player.playerId(),
-                            "WIN".equalsIgnoreCase(player.result()),
-                            player.score()
+                            player.playerId(), player.winner(), player.score()
                     ))
                     .toList();
             EloRatingService.EloMatchResult result = eloRatingService.previewRound(
                     session.getGameId(),
                     outcomes,
-                    nob.getEloSimulation()
+                    source.eloSimulation()
             );
-            Map<String, NobEloChange> changes = new LinkedHashMap<>();
-            result.changes().forEach((playerId, change) -> changes.put(
-                    playerId,
-                    new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
-            ));
-            nob.recordRoundEloChanges(round.roundNumber(), changes);
+            Map<String, GameEloChange> changes = new LinkedHashMap<>();
+            result.changes().forEach((playerId, change) -> changes.put(playerId, new GameEloChange(
+                    change.playerId(), change.winner(), change.oldElo(), change.eloDelta(), change.newElo()
+            )));
+            source.recordGameEloRoundChanges(round.roundNumber(), changes);
             session.markEloRoundProcessed(round.roundNumber());
         }
     }

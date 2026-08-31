@@ -21,6 +21,7 @@ public class GameSession {
     private Instant finishedAt;
     private UUID persistedMatchId;
     private final Set<Integer> eloProcessedRoundNumbers = new HashSet<>();
+    private final Set<String> forfeitedPlayerIds = new HashSet<>();
 
     public GameSession(
             String roomId,
@@ -96,6 +97,20 @@ public class GameSession {
 
     public void markEloRoundProcessed(int roundNumber) {
         eloProcessedRoundNumbers.add(roundNumber);
+    }
+
+    public boolean isForfeited(String playerId) {
+        return playerId != null && forfeitedPlayerIds.contains(playerId);
+    }
+
+    public void markForfeited(String playerId) {
+        if (playerId != null && !playerId.isBlank()) {
+            forfeitedPlayerIds.add(playerId);
+        }
+    }
+
+    public Set<String> getForfeitedPlayerIds() {
+        return Set.copyOf(forfeitedPlayerIds);
     }
 
     public void finish(String winnerPlayerId, Instant finishedAt) {

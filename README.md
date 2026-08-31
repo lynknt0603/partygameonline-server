@@ -1,117 +1,138 @@
 # partygameonline-server
 
-Backend service for Party Game Online, a real-time multiplayer party and board game platform.
+Dịch vụ Backend cho nền tảng chơi board game và party game trực tuyến nhiều người chơi theo thời gian thực. Hệ thống được xây dựng theo kiến trúc Server-Authoritative Modular Monolith, đảm bảo toàn bộ luật chơi, ẩn giấu thông tin (vai trò ẩn, bài trên tay) và xử lý trạng thái đều được quản lý tập trung và an toàn trên server.
 
-The system is built as a server-authoritative modular monolith in Spring Boot and Java 21, designed to support concurrent rooms, guest sessions, and real-time WebSocket communication across diverse party game modules.
+## Công nghệ sử dụng
 
-## Architecture & Overview
+- Ngôn ngữ và Framework: Java 21, Spring Boot 4.1.0 (Spring WebMVC, Spring WebSocket, Spring Security, Spring Data JPA)
+- Cơ sở dữ liệu: PostgreSQL 13+, Flyway Migration
+- Kiểm thử: JUnit 5, Mockito, Spring Boot Test
+- Công cụ build: Maven (Maven Wrapper)
 
-- **Server-Authoritative Game Logic:** Game state transitions, action validation, and hidden information remain exclusively on the server.
-- **Per-Viewer State Projection:** Each client receives only the information visible to that specific player (hidden roles, private cards, and unrevealed tokens are kept secure in memory).
-- **Pluggable Game Engine:** Games implement `GameEngine` and `GameStateProjector` contracts without coupling core networking or lobby systems to specific game rules.
-- **In-Memory Live State:** Active rooms, locks, and game sessions run entirely in-memory for sub-millisecond latency.
-- **Durable Persistence:** Match records, history, and users are persisted in PostgreSQL via Flyway migrations.
+## Cấu trúc thư mục
 
-## Game Modules
+- src/main/java/com/partygameonline/catalog: Quản lý danh mục game
+- src/main/java/com/partygameonline/room: Quản lý phòng chơi, vị trí người chơi và khoá đồng thời
+- src/main/java/com/partygameonline/game/core: Khung hợp đồng (contracts) và registry của game engine
+- src/main/java/com/partygameonline/game/runtime: Điều phối và quản lý phiên game đang chạy
+- src/main/java/com/partygameonline/game/nob: Engine và bộ chiếu trạng thái (state projector) cho game Night of Bloodlines
+- src/main/java/com/partygameonline/realtime: Quản lý kết nối WebSocket, tin nhắn và kênh chat
+- src/main/java/com/partygameonline/history: Lưu trữ và tra cứu lịch sử ván đấu
+- src/main/java/com/partygameonline/security: Cấu hình bảo mật, phân quyền, CORS và CSRF
+- src/main/java/com/partygameonline/session: Quản lý session khách (guest session)
 
-| Game Identifier | Name | Players | Description |
-|---|---|---|---|
-| `night-of-bloodlines` | Night of Bloodlines | 4–11 | Social deduction and bluffing game featuring 5 night phases, card drafting, Moon Mark mechanics, and live reactions. |
+## Yêu cầu môi trường
 
-## Tech Stack
+- JDK 21 trở lên
+- PostgreSQL 13 trở lên
 
-- **Java 21**
-- **Spring Boot 4.1.0** (Spring WebMVC, Spring WebSocket, Spring Security, Spring Data JPA)
-- **PostgreSQL 13+** with Flyway migration
-- **Testing:** JUnit 5, Mockito, Spring Boot Test
+## Thiết lập cơ sở dữ liệu
 
-## Repository Layout
-
-```text
-com.partygameonline
-├── PartyGameOnlineApplication.java
-├── catalog/          # Game metadata and catalog discovery
-├── common/           # Request ID filter, exception handlers
-├── config/           # App configuration and scheduling
-├── game/
-│   ├── core/         # Game engine contracts and registry
-│   ├── runtime/      # Active session management and dispatcher
-│   └── nob/          # Night of Bloodlines engine and projector
-├── history/          # Match history persistence and query API
-├── realtime/         # WebSocket handler, message envelopes, chat
-├── room/             # Room repository, seats, concurrency locks
-├── security/         # Security filter chain, CSRF, CORS
-├── session/          # Guest session cookie management
-└── user/             # User JPA entities and repositories
-```
-
-## Getting Started
-
-### Prerequisites
-
-- JDK 21+
-- PostgreSQL 13+
-
-### Database Setup
+Tạo các database cần thiết trên PostgreSQL:
 
 ```sql
 CREATE DATABASE partygameonline;
 CREATE DATABASE partygameonline_test;
 ```
 
-### Build & Test
+Cấu hình kết nối cơ sở dữ liệu trong file `src/main/resources/application.properties` hoặc file cấu hình môi trường tương ứng.
 
+## Hướng dẫn build và chạy testcase
+
+### 1. Chạy toàn bộ testcase
+
+Sử dụng Maven Wrapper có sẵn trong dự án:
+
+- Trên Linux / macOS:
 ```bash
-# Run tests
 ./mvnw clean test
+```
 
-# Build package
+- Trên Windows:
+```cmd
+mvnw.cmd clean test
+```
+
+### 2. Chạy testcase cụ thể
+
+Chạy một class kiểm thử xác định:
+```bash
+./mvnw test -Dtest=PartyGameOnlineApplicationTests
+```
+
+Chạy một phương thức kiểm thử cụ thể trong class:
+```bash
+./mvnw test -Dtest=PartyGameOnlineApplicationTests#contextLoads
+```
+
+### 3. Đóng gói ứng dụng (Build Package)
+
+- Đóng gói kèm chạy kiểm thử:
+```bash
 ./mvnw clean package
 ```
 
-On Windows:
-```powershell
-.\mvnw.cmd clean test
+- Đóng gói bỏ qua bước kiểm thử (nhanh):
+```bash
+./mvnw clean package -DskipTests
 ```
 
-### Run
+File thực thi `.jar` sẽ được tạo trong thư mục `target/`.
 
+## Hướng dẫn chạy ứng dụng
+
+### 1. Chạy trực tiếp qua Maven
+
+- Chạy với cấu hình mặc định:
 ```bash
-# Standard profile
 ./mvnw spring-boot:run
+```
 
-# Dev profile
+- Chạy với profile `dev`:
+```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Health check endpoints:
-- `GET /actuator/health`
-- `GET /actuator/info`
+### 2. Chạy bằng script hỗ trợ
 
-## Key API Endpoints
+- Trên macOS / Linux:
+```bash
+./run.sh
+```
 
-| Method | Path | Description |
+- Trên Windows (PowerShell):
+```powershell
+.\run.ps1
+```
+
+Hệ thống cung cấp các endpoint kiểm tra trạng thái hoạt động:
+- Health check: `GET http://localhost:8080/actuator/health`
+- Info: `GET http://localhost:8080/actuator/info`
+
+## Các API chính
+
+| Phương thức | Đường dẫn | Mô tả |
 |---|---|---|
-| GET | `/api/v1/csrf` | Obtain CSRF token |
-| POST | `/api/v1/session/guest` | Create guest session |
-| GET | `/api/v1/session/me` | Current session and room info |
-| GET | `/api/v1/games` | List available games |
-| POST | `/api/v1/rooms` | Create a room |
-| POST | `/api/v1/rooms/{id}/join` | Join a room |
-| POST | `/api/v1/rooms/{id}/ready` | Toggle ready state |
-| POST | `/api/v1/rooms/{id}/start` | Start game (host only) |
-| WS | `/ws` | Real-time WebSocket connection |
-| GET | `/api/v1/matches` | Finished match history |
+| GET | /api/v1/csrf | Lấy CSRF token |
+| POST | /api/v1/session/guest | Tạo phiên đăng nhập khách |
+| GET | /api/v1/session/me | Lấy thông tin phiên và phòng hiện tại |
+| GET | /api/v1/games | Danh sách game khả dụng |
+| POST | /api/v1/rooms | Tạo phòng chơi mới |
+| POST | /api/v1/rooms/{id}/join | Tham gia vào phòng chơi |
+| POST | /api/v1/rooms/{id}/ready | Chuyển đổi trạng thái sẵn sàng |
+| POST | /api/v1/rooms/{id}/start | Bắt đầu ván chơi (chủ phòng) |
+| WS | /ws | Kết nối WebSocket thời gian thực |
+| GET | /api/v1/matches | Lịch sử các ván đấu đã kết thúc |
 
-## Documentation
+## Tài liệu chi tiết
 
-- Architecture: `docs/BACKEND-ARCHITECTURE.md`
-- Game Engine: `docs/GAME-ENGINE.md`
-- Database: `docs/DATABASE.md`
-- REST API: `docs/REST-API.md`
-- WebSocket Protocol: `docs/WEBSOCKET-PROTOCOL.md`
-- Game Rules (VI): `docs/NOB_GAME_RULES_VI.md`
+- Kiến trúc hệ thống: `docs/BACKEND-ARCHITECTURE.md`
+- Thiết kế Game Engine: `docs/GAME-ENGINE.md`
+- Thiết kế Cơ sở dữ liệu: `docs/DATABASE.md`
+- Đặc tả REST API: `docs/REST-API.md`
+- Giao thức WebSocket: `docs/WEBSOCKET-PROTOCOL.md`
+- Luật chơi Night of Bloodlines: `docs/NOB_GAME_RULES_VI.md`
 
-## License
+## Giấy phép
 
 All rights reserved.

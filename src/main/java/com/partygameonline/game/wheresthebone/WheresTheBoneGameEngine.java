@@ -426,6 +426,10 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
                 events.add(WheresTheBoneEvent.of("PACKMATES_AUTO_SELECTED", Map.of("count", selected.size())));
             }
             case DISCUSSION -> {
+                if (state.getDiscussionSkipRequesterId() != null) {
+                    clearDiscussionSkip(state);
+                    events.add(WheresTheBoneEvent.of("DISCUSSION_SKIP_CANCELLED", Map.of()));
+                }
                 startVoting(state, events);
             }
             case VOTING -> resolveVotes(state, events);
@@ -559,7 +563,7 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
 
     private static void recordCoAwake(WheresTheBoneGameState state) {
         Set<String> awake = state.awakePlayerIds();
-        if (awake.size() < 2) return;
+        if (awake.isEmpty()) return;
         for (String playerId : awake) {
             state.coAwakeFor(playerId).put(state.getCurrentHour(), awake.stream().filter(id -> !id.equals(playerId)).collect(Collectors.toCollection(LinkedHashSet::new)));
         }

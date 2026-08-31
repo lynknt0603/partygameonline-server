@@ -150,6 +150,49 @@ class WheresTheBoneGameEngineTests {
     }
 
     @Test
+    void soleWitnessKeepsTheTheftClueAfterBecomingACursedPackmate() {
+        WheresTheBoneGameState state = state(5);
+        assignRoles(state, false);
+        state.getWakeHours().put("p1", List.of(2));
+        state.getWakeHours().put("p2", List.of(2));
+        state.getWakeHours().put("p3", List.of(3));
+        state.getWakeHours().put("p4", List.of(4));
+        state.getWakeHours().put("p5", List.of(5));
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(2);
+        state.setDeadline(Instant.now().plusSeconds(10));
+
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TAKE_BONE, null), new SeededRandomSource(15));
+        WheresTheBoneView cursedWitness = projector.project(state, player("p2"));
+
+        assertThat(cursedWitness.myRole()).isEqualTo(WheresTheBoneRole.PACKMATE.name());
+        assertThat(cursedWitness.myWitnessedBoneTakenHours()).containsExactly(2);
+        assertThat(cursedWitness.knownBoneThiefId()).isEqualTo("p1");
+        assertThat(cursedWitness.boneTakenBy()).isEqualTo("p1");
+    }
+
+    @Test
+    void wakingAloneIsRetainedInThePrivateNightJournal() {
+        WheresTheBoneGameState state = state(5);
+        assignRoles(state, false);
+        state.getWakeHours().put("p1", List.of(3));
+        state.getWakeHours().put("p2", List.of(2));
+        state.getWakeHours().put("p3", List.of(4));
+        state.getWakeHours().put("p4", List.of(5));
+        state.getWakeHours().put("p5", List.of(6));
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(1);
+        state.setDeadline(Instant.now().minusMillis(1));
+
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(16));
+        WheresTheBoneView loneDog = projector.project(state, player("p2"));
+
+        assertThat(loneDog.myCoAwakeRecords()).hasSize(1);
+        assertThat(loneDog.myCoAwakeRecords().getFirst().hour()).isEqualTo(2);
+        assertThat(loneDog.myCoAwakeRecords().getFirst().playerIds()).isEmpty();
+    }
+
+    @Test
     void postNightPackmateCountsMatchSixSevenAndEightPlayerRules() {
         assertThat(requiredPackmatesAfterNight(6)).isEqualTo(1);
         assertThat(requiredPackmatesAfterNight(7)).isEqualTo(2);
@@ -263,6 +306,25 @@ class WheresTheBoneGameEngineTests {
         assertThat(state.getDiscussionSkipResponses()).isEmpty();
         assertThat(state.getEvents()).extracting(WheresTheBoneEvent::type)
                 .contains("DISCUSSION_SKIP_APPROVED", "VOTING_STARTED");
+    }
+
+    @Test
+    void discussionTimeoutCancelsPendingSkipAndStartsOfficialVoting() {
+        WheresTheBoneGameState state = discussionState(8);
+        engine.apply(state, player("p1"), skipRequest("timeout-request-p1"), new SeededRandomSource(14));
+        state.setDeadline(Instant.now().minusMillis(1));
+
+        WheresTheBoneAction timeout = action(WheresTheBoneActionType.TIMEOUT, null);
+        assertThat(engine.validate(state, player("p1"), timeout).valid()).isTrue();
+        engine.apply(state, player("p1"), timeout, new SeededRandomSource(14));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.VOTING);
+        assertThat(state.getDiscussionSkipRequesterId()).isNull();
+        assertThat(state.getDiscussionSkipResponses()).isEmpty();
+        assertThat(projector.project(state, player("p1")).legalActions())
+                .containsExactly(WheresTheBoneActionType.VOTE.name());
+        assertThat(state.getEvents()).extracting(WheresTheBoneEvent::type)
+                .containsSubsequence("DISCUSSION_SKIP_CANCELLED", "VOTING_STARTED");
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.partygameonline.game.notinmypot;
 
 import com.partygameonline.game.core.GameManifest;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -36,5 +38,22 @@ public class NotInMyPotGameManifest implements GameManifest {
     @Override
     public boolean enabled() {
         return true;
+    }
+
+    @Override
+    public Map<String, Object> defaultRoomSettings() {
+        return Map.of("notInMyPot", NotInMyPotSettings.defaults().toMap());
+    }
+
+    @Override
+    public Map<String, Object> normalizeRoomSettings(Map<String, Object> requested) {
+        return Map.of("notInMyPot", NotInMyPotSettings.fromMap(rawSettings(requested, "notInMyPot")).toMap());
+    }
+
+    private static Object rawSettings(Map<String, Object> requested, String key) {
+        if (requested == null) {
+            return null;
+        }
+        return requested.containsKey(key) ? requested.get(key) : requested;
     }
 }

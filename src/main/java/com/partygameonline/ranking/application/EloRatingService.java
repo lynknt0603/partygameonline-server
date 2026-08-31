@@ -1,17 +1,15 @@
 package com.partygameonline.ranking.application;
 
-import com.partygameonline.game.nob.domain.NobGameState;
-import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
-import com.partygameonline.game.notinmypot.application.NotInMyPotEloCalculator;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,41 +23,65 @@ public class EloRatingService {
     public static final int MIN_ELO = 0;
 
     private static final Logger log = LoggerFactory.getLogger(EloRatingService.class);
-    private static final String NOB_GAME = "night-of-bloodlines";
 
     private final UserGameStatisticJpaRepository statisticRepository;
+    private final Map<String, GameEloPolicy> policies;
+    private final GameEloPolicy fallbackPolicy;
 
+    /** Convenience constructor retained for unit tests and lightweight callers. */
     public EloRatingService(UserGameStatisticJpaRepository statisticRepository) {
+        this(statisticRepository, List.of(
+                new NobGameEloPolicy(),
+                new NotInMyPotGameEloPolicy(),
+                new WheresTheBoneGameEloPolicy(),
+                new DefaultGameEloPolicy()
+        ));
+    }
+
+    @Autowired
+    public EloRatingService(
+            UserGameStatisticJpaRepository statisticRepository,
+            List<GameEloPolicy> gamePolicies
+    ) {
         this.statisticRepository = statisticRepository;
+        Map<String, GameEloPolicy> indexed = new HashMap<>();
+        GameEloPolicy fallback = null;
+        for (GameEloPolicy policy : gamePolicies == null ? List.<GameEloPolicy>of() : gamePolicies) {
+            if (policy == null) {
+                continue;
+            }
+            if (policy.gameCode() == null || policy.gameCode().isBlank()) {
+                if (fallback != null) {
+                    throw new IllegalStateException("Only one fallback ELO policy may be registered");
+                }
+                fallback = policy;
+            } else {
+                if (indexed.put(policy.gameCode(), policy) != null) {
+                    throw new IllegalStateException("Duplicate ELO policy for game: " + policy.gameCode());
+                }
+            }
+        }
+        this.policies = Map.copyOf(indexed);
+        this.fallbackPolicy = fallback == null ? new DefaultGameEloPolicy() : fallback;
     }
 
     public int calculateEloDelta(int playerElo, double roomAverageElo, boolean winner) {
-        double difference = Math.abs(playerElo - roomAverageElo);
-        boolean belowAverage = playerElo < roomAverageElo;
-        if (difference <= 100) {
-            return winner ? 50 : -50;
-        }
-        if (difference <= 300) {
-            return winner ? (belowAverage ? 55 : 45) : (belowAverage ? -45 : -55);
-        }
-        if (difference <= 500) {
-            return winner ? (belowAverage ? 60 : 40) : (belowAverage ? -40 : -60);
-        }
-        if (difference <= 800) {
-            return winner ? (belowAverage ? 65 : 35) : (belowAverage ? -35 : -65);
-        }
-        if (difference <= 1200) {
-            return winner ? (belowAverage ? 70 : 30) : (belowAverage ? -30 : -70);
-        }
-        if (difference <= 1800) {
-            return winner ? (belowAverage ? 75 : 25) : (belowAverage ? -25 : -75);
-        }
-        return winner ? (belowAverage ? 80 : 20) : (belowAverage ? -20 : -80);
+        return DefaultGameEloPolicy.calculateEloDelta(playerElo, roomAverageElo, winner);
     }
 
     @Transactional
     public EloMatchResult applyRound(String gameCode, List<PlayerOutcome> outcomes) {
-        return applyRatings(gameCode, outcomes, false);
+        List<PlayerOutcome> distinct = distinctOutcomes(outcomes);
+        if (distinct.isEmpty()) {
+            return new EloMatchResult(Map.of(), DEFAULT_ELO);
+        }
+        Map<String, UserGameStatisticEntity> stats = loadLocked(
+                gameCode,
+                distinct.stream().map(PlayerOutcome::playerId).toList()
+        );
+        EloMatchResult result = policyFor(gameCode).calculateRound(distinct, ratings(stats));
+        applyResult(gameCode, stats, result, false);
+        return result;
     }
 
     /**
@@ -86,294 +108,107 @@ public class EloRatingService {
                             .orElse(DEFAULT_ELO);
             ratings.put(outcome.playerId(), Math.max(MIN_ELO, rating));
         }
-        double roomAverage = ratings.values().stream().mapToInt(Integer::intValue).average().orElse(DEFAULT_ELO);
-        if (distinct.size() > 1 && distinct.stream().allMatch(outcome -> outcome.score() != null)) {
-            return previewRankedRound(distinct, ratings, roomAverage);
-        }
-        Map<String, EloChange> changes = new LinkedHashMap<>();
-        for (PlayerOutcome outcome : distinct) {
-            int oldElo = ratings.get(outcome.playerId());
-            int requestedDelta = calculateEloDelta(oldElo, roomAverage, outcome.winner());
-            int newElo = Math.max(MIN_ELO, oldElo + requestedDelta);
-            changes.put(outcome.playerId(), new EloChange(
-                    outcome.playerId(),
-                    outcome.winner(),
-                    oldElo,
-                    newElo - oldElo,
-                    newElo
-            ));
-        }
-        return new EloMatchResult(changes, roomAverage);
-    }
-
-    private EloMatchResult previewRankedRound(
-            List<PlayerOutcome> outcomes,
-            Map<String, Integer> ratings,
-            double roomAverage
-    ) {
-        int opponentCount = outcomes.size() - 1;
-        Map<String, Integer> rawDeltas = new LinkedHashMap<>();
-        outcomes.forEach(outcome -> rawDeltas.put(outcome.playerId(), 0));
-
-        for (int leftIndex = 0; leftIndex < outcomes.size(); leftIndex++) {
-            PlayerOutcome left = outcomes.get(leftIndex);
-            for (int rightIndex = leftIndex + 1; rightIndex < outcomes.size(); rightIndex++) {
-                PlayerOutcome right = outcomes.get(rightIndex);
-                if (left.score().equals(right.score())) {
-                    continue;
-                }
-                PlayerOutcome higherScore = left.score() > right.score() ? left : right;
-                PlayerOutcome lowerScore = higherScore == left ? right : left;
-                int higherRating = ratings.get(higherScore.playerId());
-                int lowerRating = ratings.get(lowerScore.playerId());
-                double pairAverage = (higherRating + lowerRating) / 2.0;
-                int pairTransfer = Math.max(
-                        1,
-                        (int) Math.round(calculateEloDelta(higherRating, pairAverage, true) / (double) opponentCount)
-                );
-                rawDeltas.compute(higherScore.playerId(), (ignored, delta) -> delta + pairTransfer);
-                rawDeltas.compute(lowerScore.playerId(), (ignored, delta) -> delta - pairTransfer);
-            }
-        }
-
-        Map<String, Integer> balancedDeltas = capLossesAndBalance(rawDeltas, ratings, outcomes);
-        Map<String, EloChange> changes = new LinkedHashMap<>();
-        for (PlayerOutcome outcome : outcomes) {
-            int oldElo = ratings.get(outcome.playerId());
-            int delta = balancedDeltas.getOrDefault(outcome.playerId(), 0);
-            changes.put(outcome.playerId(), new EloChange(
-                    outcome.playerId(),
-                    outcome.winner(),
-                    oldElo,
-                    delta,
-                    oldElo + delta
-            ));
-        }
-        return new EloMatchResult(changes, roomAverage);
-    }
-
-    private static Map<String, Integer> capLossesAndBalance(
-            Map<String, Integer> rawDeltas,
-            Map<String, Integer> ratings,
-            List<PlayerOutcome> outcomes
-    ) {
-        Map<String, Integer> balanced = new LinkedHashMap<>();
-        int availableLossPool = 0;
-        int requestedGainPool = 0;
-        for (PlayerOutcome outcome : outcomes) {
-            String playerId = outcome.playerId();
-            int rawDelta = rawDeltas.getOrDefault(playerId, 0);
-            if (rawDelta < 0) {
-                int cappedDelta = Math.max(rawDelta, -ratings.get(playerId));
-                balanced.put(playerId, cappedDelta);
-                availableLossPool -= cappedDelta;
-            } else {
-                balanced.put(playerId, 0);
-                requestedGainPool += rawDelta;
-            }
-        }
-        if (requestedGainPool == 0 || availableLossPool == 0) {
-            return balanced;
-        }
-
-        int assigned = 0;
-        List<GainShare> shares = new ArrayList<>();
-        for (int index = 0; index < outcomes.size(); index++) {
-            String playerId = outcomes.get(index).playerId();
-            int requestedGain = Math.max(0, rawDeltas.getOrDefault(playerId, 0));
-            if (requestedGain == 0) {
-                continue;
-            }
-            double exactShare = requestedGain * (double) availableLossPool / requestedGainPool;
-            int baseShare = (int) Math.floor(exactShare);
-            balanced.put(playerId, baseShare);
-            assigned += baseShare;
-            shares.add(new GainShare(playerId, exactShare - baseShare, index));
-        }
-        shares.sort((left, right) -> {
-            int byRemainder = Double.compare(right.remainder(), left.remainder());
-            return byRemainder != 0 ? byRemainder : Integer.compare(left.order(), right.order());
-        });
-        for (int index = 0; index < availableLossPool - assigned; index++) {
-            String playerId = shares.get(index).playerId();
-            balanced.compute(playerId, (ignored, delta) -> delta + 1);
-        }
-        return balanced;
+        return policyFor(gameCode).calculateRound(distinct, ratings);
     }
 
     /**
-     * Applies one complete match for games that do not expose round results.
-     * NOB uses {@link #completeNobMatch(List, Set, NobGameState)} so totalMatch
-     * is still incremented once even though its rating is shown round-by-round.
+     * Applies one complete match through the policy registered for its game.
      */
     @Transactional
     public EloMatchResult applyMatch(String gameCode, List<PlayerOutcome> outcomes) {
-        if (NotInMyPotGameManifest.ID.equals(gameCode)) {
-            List<PlayerOutcome> distinct = distinctOutcomes(outcomes);
-            Set<String> winners = distinct.stream()
-                    .filter(PlayerOutcome::winner)
-                    .map(PlayerOutcome::playerId)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            return completeNotInMyPotMatch(
-                    distinct.stream().map(PlayerOutcome::playerId).toList(),
-                    winners
-            );
+        List<PlayerOutcome> distinct = distinctOutcomes(outcomes);
+        if (distinct.isEmpty()) {
+            return new EloMatchResult(Map.of(), DEFAULT_ELO);
         }
-        return applyRatings(gameCode, outcomes, true);
+        return completeMatch(gameCode, distinct.stream().map(PlayerOutcome::playerId).toList(),
+                distinct.stream().filter(PlayerOutcome::winner).map(PlayerOutcome::playerId)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)), null);
     }
 
-    /** Completes a Not In My Pot match against its own persisted rating column. */
+    /** Completes a match through the policy registered for its game id. */
     @Transactional
-    public EloMatchResult completeNotInMyPotMatch(List<String> playerIds, Set<String> winners) {
+    public EloMatchResult completeMatch(
+            String gameCode,
+            List<String> playerIds,
+            Set<String> winners,
+            Object gameState
+    ) {
         List<String> distinctPlayerIds = distinctIds(playerIds);
         if (distinctPlayerIds.isEmpty()) {
-            return new EloMatchResult(Map.of(), 0);
+            return new EloMatchResult(Map.of(), DEFAULT_ELO);
         }
-        Set<String> winnerIds = winners == null ? Set.of() : Set.copyOf(winners);
-        Map<String, UserGameStatisticEntity> stats = loadLocked(NotInMyPotGameManifest.ID, distinctPlayerIds);
-        double roomAverage = roomAverage(stats);
-        List<NotInMyPotEloCalculator.PlayerRating> winnerRatings = new ArrayList<>();
-        List<NotInMyPotEloCalculator.PlayerRating> loserRatings = new ArrayList<>();
-        for (String playerId : distinctPlayerIds) {
-            UserGameStatisticEntity statistic = stats.get(playerId);
-            NotInMyPotEloCalculator.PlayerRating rating = new NotInMyPotEloCalculator.PlayerRating(
-                    playerId,
-                    statistic.getEloForGame()
-            );
-            if (winnerIds.contains(playerId)) {
-                winnerRatings.add(rating);
-            } else {
-                loserRatings.add(rating);
-            }
-        }
-
-        List<NotInMyPotEloCalculator.EloChange> calculated =
-                NotInMyPotEloCalculator.calculateEloChanges(winnerRatings, loserRatings);
-        Map<String, EloChange> changes = new LinkedHashMap<>();
-        for (NotInMyPotEloCalculator.EloChange change : calculated) {
-            UserGameStatisticEntity statistic = stats.get(change.id());
-            statistic.applyNotInMyPotRatingDelta(change.eloChange());
-            statistic.completeMatch(winnerIds.contains(change.id()));
-            changes.put(change.id(), new EloChange(
-                    change.id(),
-                    winnerIds.contains(change.id()),
-                    change.oldElo(),
-                    change.eloChange(),
-                    change.newElo()
-            ));
-        }
-        statisticRepository.saveAll(stats.values());
-        log.info(
-                "Not In My Pot ELO completed players={} winners={} roomAverage={}",
-                distinctPlayerIds.size(),
-                winnerRatings.size(),
-                roomAverage
-        );
-        return new EloMatchResult(changes, roomAverage);
+        Map<String, UserGameStatisticEntity> stats = loadLocked(gameCode, distinctPlayerIds);
+        Map<String, Integer> ratings = ratings(stats);
+        List<PlayerOutcome> outcomes = distinctPlayerIds.stream()
+                .map(playerId -> new PlayerOutcome(
+                        playerId,
+                        winners != null && winners.contains(playerId)
+                ))
+                .toList();
+        EloMatchResult result = policyFor(gameCode).calculateMatch(outcomes, ratings, gameState);
+        applyResult(gameCode, stats, result, true);
+        return result;
     }
 
+    /** Applies one game-specific forfeit and counts it as a completed loss. */
+    @Transactional
+    public EloMatchResult applyForfeit(String gameCode, String playerId) {
+        if (playerId == null || playerId.isBlank()) {
+            return new EloMatchResult(Map.of(), DEFAULT_ELO);
+        }
+        Map<String, UserGameStatisticEntity> stats = loadLocked(gameCode, List.of(playerId));
+        UserGameStatisticEntity statistic = stats.get(playerId);
+        EloMatchResult result = policyFor(gameCode).calculateForfeit(playerId, statistic.getEloForGame());
+        applyResult(gameCode, stats, result, true);
+        return result;
+    }
+
+    /** Compatibility wrapper for existing callers and tests. */
+    @Transactional
+    public EloMatchResult completeNotInMyPotMatch(List<String> playerIds, Set<String> winners) {
+        return completeMatch(
+                "not-in-my-pot",
+                playerIds,
+                winners,
+                null
+        );
+    }
+
+    /** Compatibility wrapper for existing callers and tests. */
     @Transactional
     public EloMatchResult completeNobMatch(
             List<String> playerIds,
             Set<String> winners,
-            NobGameState state
+            Object state
     ) {
-        List<String> distinctPlayerIds = distinctIds(playerIds);
-        Set<String> winnerIds = winners == null ? Set.of() : Set.copyOf(winners);
-        if (state == null || state.getCompletedRounds().isEmpty()) {
-            return applyMatch(
-                    NOB_GAME,
-                    distinctPlayerIds.stream().map(id -> new PlayerOutcome(id, winnerIds.contains(id))).toList()
-            );
-        }
-
-        Map<String, UserGameStatisticEntity> stats = loadLocked(NOB_GAME, distinctPlayerIds);
-        double roomAverage = roomAverage(stats);
-        Map<String, Integer> firstRoundElo = new LinkedHashMap<>();
-        for (var round : state.getCompletedRounds()) {
-            state.getRoundEloChanges(round.roundNumber()).forEach((playerId, change) ->
-                    firstRoundElo.putIfAbsent(playerId, change.oldElo())
-            );
-        }
-        Map<String, Integer> targetRatings = new LinkedHashMap<>();
-        for (String playerId : distinctPlayerIds) {
-            int target = stats.get(playerId).getEloForGame();
-            for (var round : state.getCompletedRounds()) {
-                for (var snapshot : round.players()) {
-                    if (playerId.equals(snapshot.playerId())) {
-                        target = Math.max(MIN_ELO, target + nullToZero(snapshot.eloDelta()));
-                    }
-                }
-            }
-            targetRatings.put(playerId, target);
-        }
-        Map<String, EloChange> changes = new LinkedHashMap<>();
-        for (String playerId : distinctPlayerIds) {
-            UserGameStatisticEntity statistic = stats.get(playerId);
-            int oldElo = statistic.getEloForGame();
-            int finalElo = targetRatings.getOrDefault(playerId, oldElo);
-            if (finalElo != oldElo) {
-                statistic.applyRatingDelta(finalElo - oldElo);
-            }
-            statistic.completeMatch(winnerIds.contains(playerId));
-            int aggregateOldElo = firstRoundElo.getOrDefault(playerId, oldElo);
-            changes.put(playerId, new EloChange(
-                    playerId,
-                    winnerIds.contains(playerId),
-                    aggregateOldElo,
-                    statistic.getEloForGame() - aggregateOldElo,
-                    statistic.getEloForGame()
-            ));
-        }
-        statisticRepository.saveAll(stats.values());
-        log.info(
-                "NOB ranked ELO completed players={} winners={}",
-                distinctPlayerIds.size(),
-                winnerIds.size()
-        );
-        return new EloMatchResult(changes, roomAverage);
+        return completeMatch("night-of-bloodlines", playerIds, winners, state);
     }
 
-    private EloMatchResult applyRatings(
+    private void applyResult(
             String gameCode,
-            List<PlayerOutcome> rawOutcomes,
+            Map<String, UserGameStatisticEntity> stats,
+            EloMatchResult result,
             boolean completeMatch
     ) {
-        List<PlayerOutcome> outcomes = distinctOutcomes(rawOutcomes);
-        if (outcomes.isEmpty()) {
-            return new EloMatchResult(Map.of(), 0);
-        }
-        Map<String, UserGameStatisticEntity> stats = loadLocked(
-                gameCode,
-                outcomes.stream().map(PlayerOutcome::playerId).toList()
-        );
-        double roomAverage = roomAverage(stats);
-        Map<String, EloChange> changes = new LinkedHashMap<>();
-        for (PlayerOutcome outcome : outcomes) {
-            UserGameStatisticEntity statistic = stats.get(outcome.playerId());
-            int oldElo = statistic.getEloForGame();
-            int delta = calculateEloDelta(oldElo, roomAverage, outcome.winner());
-            statistic.applyRatingDelta(delta);
-            if (completeMatch) {
-                statistic.completeMatch(outcome.winner());
+        GameEloPolicy policy = policyFor(gameCode);
+        for (EloChange change : result.changes().values()) {
+            UserGameStatisticEntity statistic = stats.get(change.playerId());
+            if (statistic == null) {
+                continue;
             }
-            changes.put(outcome.playerId(), new EloChange(
-                    outcome.playerId(),
-                    outcome.winner(),
-                    oldElo,
-                    statistic.getEloForGame() - oldElo,
-                    statistic.getEloForGame()
-            ));
+            policy.applyDelta(statistic, change.eloDelta());
+            if (completeMatch) {
+                statistic.completeMatch(change.winner());
+            }
         }
         statisticRepository.saveAll(stats.values());
         log.info(
                 "ELO {} gameCode={} players={} roomAverage={}",
                 completeMatch ? "match" : "round",
                 gameCode,
-                outcomes.size(),
-                roomAverage
+                result.changes().size(),
+                result.roomAverageElo()
         );
-        return new EloMatchResult(changes, roomAverage);
     }
 
     private Map<String, UserGameStatisticEntity> loadLocked(String gameCode, List<String> playerIds) {
@@ -387,11 +222,14 @@ public class EloRatingService {
         return result;
     }
 
-    private static double roomAverage(Map<String, UserGameStatisticEntity> stats) {
-        return stats.values().stream()
-                .mapToInt(UserGameStatisticEntity::getEloForGame)
-                .average()
-                .orElse(DEFAULT_ELO);
+    private GameEloPolicy policyFor(String gameCode) {
+        return policies.getOrDefault(gameCode, fallbackPolicy);
+    }
+
+    private static Map<String, Integer> ratings(Map<String, UserGameStatisticEntity> stats) {
+        Map<String, Integer> ratings = new LinkedHashMap<>();
+        stats.forEach((playerId, statistic) -> ratings.put(playerId, statistic.getEloForGame()));
+        return ratings;
     }
 
     private static List<PlayerOutcome> distinctOutcomes(List<PlayerOutcome> rawOutcomes) {
@@ -414,13 +252,6 @@ public class EloRatingService {
         return new ArrayList<>(new LinkedHashSet<>(rawIds.stream()
                 .filter(id -> id != null && !id.isBlank())
                 .toList()));
-    }
-
-    private static int nullToZero(Integer value) {
-        return value == null ? 0 : value;
-    }
-
-    private record GainShare(String playerId, double remainder, int order) {
     }
 
     public record PlayerOutcome(String playerId, boolean winner, Integer score) {

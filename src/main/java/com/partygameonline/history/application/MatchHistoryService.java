@@ -6,8 +6,6 @@ import com.partygameonline.game.core.GameEloChangeSink;
 import com.partygameonline.game.core.GameOutcomeState;
 import com.partygameonline.game.core.GamePlayerOutcome;
 import com.partygameonline.game.nob.domain.NobGameState;
-import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
-import com.partygameonline.game.nob.domain.NobPlayerState;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.core.GameRegistry;
@@ -22,7 +20,6 @@ import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.ranking.application.EloRatingService;
-import com.partygameonline.game.nob.domain.NobEloChange;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.time.Instant;
@@ -128,12 +125,56 @@ public class MatchHistoryService {
         }
     }
 
+    /**
+     * Records an explicit leave from a running game immediately as one loss.
+     * The live session continues for the remaining players; the forfeiting
+     * player is excluded from the eventual completed-match ELO settlement.
+     */
+    @Transactional
+    public void recordForfeit(GameRoom room, GameSession session, String playerId, String displayName) {
+        if (room == null || session == null || session.isFinished()
+                || playerId == null || !session.getConfig().playerIds().contains(playerId)
+                || session.isForfeited(playerId)) {
+            return;
+        }
+        synchronized (session) {
+            if (session.isForfeited(playerId)) {
+                return;
+            }
+            Instant forfeitedAt = Instant.now();
+            MatchEntity match = matchJpaRepository.save(MatchEntity.completed(
+                    session.getGameId(),
+                    room.getId().value(),
+                    null,
+                    "FORFEIT",
+                    session.getStartedAt(),
+                    forfeitedAt
+            ));
+            PlayerStatistics statistics = playerStatistics(session, playerId);
+            matchPlayerJpaRepository.save(MatchPlayerEntity.newPlayer(
+                    match.getId(),
+                    null,
+                    playerId,
+                    displayName == null || displayName.isBlank() ? playerId : displayName,
+                    session.getConfig().playerIds().indexOf(playerId),
+                    "LOSS",
+                    statistics.score(),
+                    statistics.role(),
+                    statistics.bloodline()
+            ));
+            if (eloRatingService != null) {
+                eloRatingService.applyForfeit(session.getGameId(), playerId);
+            }
+            match.markEloProcessed();
+            matchJpaRepository.save(match);
+            session.markForfeited(playerId);
+        }
+    }
+
     private Set<String> winners(GameSession session) {
         Set<String> winners = new LinkedHashSet<>();
         if (session.getState() instanceof GameOutcomeState outcome && !outcome.winnerPlayerIds().isEmpty()) {
             winners.addAll(outcome.winnerPlayerIds());
-        } else if (session.getState() instanceof NobGameState nob && !nob.getWinnerPlayerIds().isEmpty()) {
-            winners.addAll(nob.getWinnerPlayerIds());
         } else if (session.getWinnerPlayerId() != null) {
             winners.add(session.getWinnerPlayerId());
         }
@@ -144,30 +185,15 @@ public class MatchHistoryService {
         if (eloRatingService == null || match.isEloProcessed()) {
             return;
         }
-        List<String> playerIds = session.getConfig().playerIds();
-        EloRatingService.EloMatchResult result;
-        if (session.getState() instanceof NobGameState nob
-                && !nob.getCompletedRounds().isEmpty()) {
-            result = eloRatingService.completeNobMatch(playerIds, winners, nob);
-            Map<String, NobEloChange> finalChanges = new java.util.LinkedHashMap<>();
-            result.changes().forEach((playerId, change) -> finalChanges.put(
-                    playerId,
-                    new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
-            ));
-            nob.recordFinalEloChanges(finalChanges);
-        } else if (session.getState() instanceof NotInMyPotGameState) {
-            result = eloRatingService.completeNotInMyPotMatch(playerIds, winners);
-        } else {
-            result = eloRatingService.applyMatch(
-                    session.getGameId(),
-                    playerIds.stream()
-                            .map(playerId -> new EloRatingService.PlayerOutcome(
-                                    playerId,
-                                    winners.contains(playerId)
-                            ))
-                            .toList()
-            );
-        }
+        List<String> playerIds = session.getConfig().playerIds().stream()
+                .filter(playerId -> !session.isForfeited(playerId))
+                .toList();
+        EloRatingService.EloMatchResult result = eloRatingService.completeMatch(
+                session.getGameId(),
+                playerIds,
+                winners,
+                session.getState()
+        );
         if (session.getState() instanceof GameEloChangeSink sink) {
             Map<String, GameEloChange> changes = new LinkedHashMap<>();
             result.changes().forEach((playerId, change) -> changes.put(
@@ -206,35 +232,7 @@ public class MatchHistoryService {
                     ? PlayerStatistics.EMPTY
                     : new PlayerStatistics(player.score(), player.role(), player.bloodline());
         }
-        if (session.getState() instanceof NobGameState nob) {
-            return nob.getPlayers().stream()
-                    .filter(player -> player.getPlayerId().equals(playerId))
-                    .findFirst()
-                    .map(MatchHistoryService::toStatistics)
-                    .orElse(PlayerStatistics.EMPTY);
-        }
         return PlayerStatistics.EMPTY;
-    }
-
-    private static PlayerStatistics toStatistics(NobPlayerState player) {
-        String bloodline = player.getCurrentBloodline() == null
-                ? null
-                : player.getCurrentBloodline().type().name();
-        String role = java.util.stream.Stream.of(
-                        player.getUsedCards(),
-                        player.getRevealedCards(),
-                        player.getHand()
-                )
-                .flatMap(List::stream)
-                .map(card -> card.roleType().name())
-                .filter(value -> !"SPECIAL".equals(value))
-                .findFirst()
-                .orElse(null);
-        return new PlayerStatistics(
-                player.score(),
-                role,
-                bloodline
-        );
     }
 
     private record PlayerStatistics(Integer score, String role, String bloodline) {

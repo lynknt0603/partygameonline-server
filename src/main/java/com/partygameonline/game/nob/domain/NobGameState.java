@@ -1,6 +1,13 @@
 package com.partygameonline.game.nob.domain;
 
 import com.partygameonline.game.core.RandomSource;
+import com.partygameonline.game.core.GameEloChange;
+import com.partygameonline.game.core.GameEloRound;
+import com.partygameonline.game.core.GameEloRoundPlayer;
+import com.partygameonline.game.core.GameEloChangeSink;
+import com.partygameonline.game.core.GameOutcomeState;
+import com.partygameonline.game.core.GamePlayerOutcome;
+import com.partygameonline.game.core.GameRoundEloSource;
 import com.partygameonline.game.nob.catalog.NobCardCatalog;
 import com.partygameonline.game.nob.catalog.NobCardDef;
 import java.time.Instant;
@@ -16,7 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-public class NobGameState {
+public class NobGameState implements GameRoundEloSource, GameEloChangeSink, GameOutcomeState {
 
     public static final int MIN_PLAYERS = 4;
     public static final int MAX_PLAYERS = 11;
@@ -417,6 +424,29 @@ public class NobGameState {
         return winnerPlayerIds;
     }
 
+    @Override
+    public Set<String> winnerPlayerIds() {
+        return Set.copyOf(winnerPlayerIds);
+    }
+
+    @Override
+    public GamePlayerOutcome playerOutcome(String playerId) {
+        NobPlayerState player = player(playerId);
+        if (player == null) {
+            return null;
+        }
+        String role = java.util.stream.Stream.of(player.getUsedCards(), player.getRevealedCards(), player.getHand())
+                .flatMap(List::stream)
+                .map(card -> card.roleType().name())
+                .filter(value -> !"SPECIAL".equals(value))
+                .findFirst()
+                .orElse(null);
+        String bloodline = player.getCurrentBloodline() == null
+                ? null
+                : player.getCurrentBloodline().type().name();
+        return new GamePlayerOutcome(player.score(), role, bloodline);
+    }
+
     public List<NobCompletedRound> getCompletedRounds() {
         return List.copyOf(completedRounds);
     }
@@ -451,6 +481,40 @@ public class NobGameState {
 
     public Map<String, Integer> getEloSimulation() {
         return Map.copyOf(eloSimulation);
+    }
+
+    @Override
+    public List<GameEloRound> completedEloRounds() {
+        return completedRounds.stream()
+                .map(round -> new GameEloRound(
+                        round.roundNumber(),
+                        round.players().stream()
+                                .map(player -> new GameEloRoundPlayer(
+                                        player.playerId(),
+                                        "WIN".equalsIgnoreCase(player.result()),
+                                        player.score()
+                                ))
+                                .toList()
+                ))
+                .toList();
+    }
+
+    @Override
+    public Map<String, Integer> eloSimulation() {
+        return getEloSimulation();
+    }
+
+    @Override
+    public void recordGameEloRoundChanges(int roundNumber, Map<String, GameEloChange> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return;
+        }
+        Map<String, NobEloChange> translated = new LinkedHashMap<>();
+        changes.forEach((playerId, change) -> translated.put(
+                playerId,
+                new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
+        ));
+        recordRoundEloChanges(roundNumber, translated);
     }
 
     public void recordRoundEloChanges(int roundNumber, Map<String, NobEloChange> changes) {
@@ -489,6 +553,18 @@ public class NobGameState {
         if (changes != null) {
             finalEloChanges.putAll(changes);
         }
+    }
+
+    @Override
+    public void recordEloChanges(Map<String, GameEloChange> changes) {
+        Map<String, NobEloChange> translated = new LinkedHashMap<>();
+        if (changes != null) {
+            changes.forEach((playerId, change) -> translated.put(
+                    playerId,
+                    new NobEloChange(change.oldElo(), change.eloDelta(), change.newElo())
+            ));
+        }
+        recordFinalEloChanges(translated);
     }
 
     public List<NobPlayerState> getPlayers() {
