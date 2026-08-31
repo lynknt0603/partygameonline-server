@@ -9,6 +9,8 @@ import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.core.GameRegistry;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
+import com.partygameonline.game.wheresthebone.domain.WheresTheBoneGameState;
 import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
 import com.partygameonline.history.api.dto.MatchHistoryPlayerResponse;
 import com.partygameonline.game.runtime.GameSession;
@@ -36,6 +38,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +48,7 @@ public class MatchHistoryService {
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
+    private static final Logger log = LoggerFactory.getLogger(MatchHistoryService.class);
 
     private final MatchJpaRepository matchJpaRepository;
     private final MatchPlayerJpaRepository matchPlayerJpaRepository;
@@ -102,22 +107,26 @@ public class MatchHistoryService {
                     finishedAt
             ));
             Set<String> winners = winners(session);
-            int seat = 0;
-            for (RoomPlayer player : room.getPlayers()) {
-                boolean winner = winners.contains(player.getPlayerId());
-                PlayerStatistics statistics = playerStatistics(session, player.getPlayerId());
+            List<String> participantIds = persistedParticipantIds(room, session);
+            for (int seat = 0; seat < participantIds.size(); seat++) {
+                String playerId = participantIds.get(seat);
+                RoomPlayer roomPlayer = room.findPlayer(playerId).orElse(null);
+                String displayName = roomPlayer == null
+                        ? session.getConfig().displayName(playerId)
+                        : roomPlayer.getDisplayName();
+                boolean winner = winners.contains(playerId);
+                PlayerStatistics statistics = playerStatistics(session, playerId);
                 matchPlayerJpaRepository.save(MatchPlayerEntity.newPlayer(
                         match.getId(),
                         null,
-                        player.getPlayerId(),
-                        player.getDisplayName(),
+                        playerId,
+                        displayName,
                         seat,
                         winner ? "WIN" : "LOSS",
                         statistics.score(),
                         statistics.role(),
                         statistics.bloodline()
                 ));
-                seat += 1;
             }
             persistNobRounds(match.getId(), session);
             applyElo(match, session, winners);
@@ -133,6 +142,7 @@ public class MatchHistoryService {
     @Transactional
     public void recordForfeit(GameRoom room, GameSession session, String playerId, String displayName) {
         if (room == null || session == null || session.isFinished()
+                || WheresTheBoneGameManifest.ID.equals(session.getGameId())
                 || playerId == null || !session.getConfig().playerIds().contains(playerId)
                 || session.isForfeited(playerId)) {
             return;
@@ -185,9 +195,17 @@ public class MatchHistoryService {
         if (eloRatingService == null || match.isEloProcessed()) {
             return;
         }
-        List<String> playerIds = session.getConfig().playerIds().stream()
-                .filter(playerId -> !session.isForfeited(playerId))
-                .toList();
+        boolean wheresTheBone = WheresTheBoneGameManifest.ID.equals(session.getGameId());
+        List<String> playerIds = wheresTheBone
+                ? session.getConfig().playerIds()
+                : session.getConfig().playerIds().stream()
+                        .filter(playerId -> !session.isForfeited(playerId))
+                        .toList();
+        if (wheresTheBone && !validWheresTheBoneOutcome(match, session, winners, playerIds)) {
+            match.markEloProcessed();
+            matchJpaRepository.save(match);
+            return;
+        }
         EloRatingService.EloMatchResult result = eloRatingService.completeMatch(
                 session.getGameId(),
                 playerIds,
@@ -208,8 +226,48 @@ public class MatchHistoryService {
             ));
             sink.recordEloChanges(changes);
         }
+        if (wheresTheBone) {
+            int pool = result.changes().values().stream()
+                    .filter(change -> change.eloDelta() > 0)
+                    .mapToInt(EloRatingService.EloChange::eloDelta)
+                    .sum();
+            log.info(
+                    "ELO matchId={} gameCode={} pool={} winnerCount={} loserCount={}",
+                    match.getId(),
+                    session.getGameId(),
+                    pool,
+                    winners.size(),
+                    playerIds.size() - winners.size()
+            );
+        }
         match.markEloProcessed();
         matchJpaRepository.save(match);
+    }
+
+    private static List<String> persistedParticipantIds(GameRoom room, GameSession session) {
+        if (WheresTheBoneGameManifest.ID.equals(session.getGameId())) {
+            return session.getConfig().playerIds();
+        }
+        return room.getPlayers().stream().map(RoomPlayer::getPlayerId).toList();
+    }
+
+    private static boolean validWheresTheBoneOutcome(
+            MatchEntity match,
+            GameSession session,
+            Set<String> winners,
+            List<String> playerIds
+    ) {
+        if (!(session.getState() instanceof WheresTheBoneGameState state) || !state.isFinished()) {
+            return false;
+        }
+        String result = match.getResult();
+        if (result != null && Set.of("CANCELLED", "ABORTED", "INVALID")
+                .contains(result.trim().toUpperCase(java.util.Locale.ROOT))) {
+            return false;
+        }
+        return !winners.isEmpty()
+                && winners.size() < playerIds.size()
+                && winners.stream().allMatch(playerIds::contains);
     }
 
     private void persistNobRounds(UUID gameId, GameSession session) {

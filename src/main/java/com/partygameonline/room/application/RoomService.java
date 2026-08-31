@@ -14,6 +14,7 @@ import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.runtime.AppliedAction;
 import com.partygameonline.game.runtime.GameRuntimeService;
 import com.partygameonline.game.runtime.GameSession;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.history.application.MatchHistoryService;
 import com.partygameonline.room.domain.PlayerLobbyState;
 import com.partygameonline.realtime.RoomRealtimePublisher;
@@ -122,7 +123,7 @@ public class RoomService {
                     if (applied.result().finished()) {
                         room.markFinished();
                         matchHistoryService.recordIfFinished(room, session);
-                    } else {
+                    } else if (!WheresTheBoneGameManifest.ID.equals(session.getGameId())) {
                         matchHistoryService.recordForfeit(
                                 room,
                                 session,
