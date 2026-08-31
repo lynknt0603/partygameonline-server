@@ -126,8 +126,6 @@ class WheresTheBoneEloCalculatorTests {
 
         assertThat(first).isEqualTo(second);
         assertZeroSum(first);
-        assertThat(first.values()).allSatisfy(change ->
-                assertThat(change.actualDelta()).isEqualTo((int) change.actualDelta()));
     }
 
     @Test

@@ -44,7 +44,7 @@ class ProfileStatsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.playerId").isNotEmpty())
                 .andExpect(jsonPath("$.player.displayName").value("Stats Guest"))
-                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatar-default.png"))
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/default.png"))
                 .andExpect(jsonPath("$.player.joinedAt").isNotEmpty())
                 .andExpect(jsonPath("$.player.role").value("Guest"))
                 .andExpect(jsonPath("$.player.platform").value("Web"))
@@ -143,6 +143,92 @@ class ProfileStatsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.username").value(username))
                 .andExpect(jsonPath("$.player.displayName").value("Room Name"));
+    }
+
+    @Test
+    void memberAvatarIsPersistedAcrossSessionAndPublicProfile() throws Exception {
+        String username = "avatar" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
+
+        String roomId = com.jayway.jsonpath.JsonPath.read(
+                mockMvc.perform(post("/api/v1/rooms")
+                                .session(session)
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"gameId":"night-of-bloodlines","name":"Avatar Room","visibility":"PUBLIC"}
+                                        """))
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(),
+                "$.id"
+        );
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"09_happy_dog.png\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/session/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"default.png\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
+
+        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/default.png"));
+
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/default.png"));
+    }
+
+    @Test
+    void memberCannotSelectLockedOrUnknownAvatar() throws Exception {
+        String username = "avatarlocked" + UUID.randomUUID().toString().replace("-", "").substring(0, 6);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"master.png\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_AVATAR"));
     }
 
     @Test

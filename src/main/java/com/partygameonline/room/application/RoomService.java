@@ -14,6 +14,7 @@ import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.runtime.AppliedAction;
 import com.partygameonline.game.runtime.GameRuntimeService;
 import com.partygameonline.game.runtime.GameSession;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.history.application.MatchHistoryService;
 import com.partygameonline.room.domain.PlayerLobbyState;
@@ -71,6 +72,7 @@ public class RoomService {
                         game.id(),
                         principal.playerId(),
                         principal.displayName(),
+                        principal.avatarUrl(),
                         maxPlayers,
                         roomVisibility,
                         Instant.now()
@@ -98,7 +100,7 @@ public class RoomService {
         return roomLocks.withPlayerThenRoom(principal.playerId(), roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
             ensureNotInAnotherRoom(principal.playerId(), roomId);
-            room.join(principal.playerId(), principal.displayName());
+            room.join(principal.playerId(), principal.displayName(), principal.avatarUrl());
             roomRepository.indexPlayer(principal.playerId(), roomId);
             realtimePublisher.playerJoined(room, principal.playerId());
             return room;
@@ -120,16 +122,19 @@ public class RoomService {
                         PlayerContext.player(principal.playerId(), principal.displayName())
                 );
                 if (applied.accepted()) {
-                    if (applied.result().finished()) {
-                        room.markFinished();
-                        matchHistoryService.recordIfFinished(room, session);
-                    } else if (!WheresTheBoneGameManifest.ID.equals(session.getGameId())) {
+                    boolean notInMyPot = NotInMyPotGameManifest.ID.equals(session.getGameId());
+                    if (notInMyPot || (!applied.result().finished()
+                            && !WheresTheBoneGameManifest.ID.equals(session.getGameId()))) {
                         matchHistoryService.recordForfeit(
                                 room,
                                 session,
                                 principal.playerId(),
                                 principal.displayName()
                         );
+                    }
+                    if (applied.result().finished()) {
+                        room.markFinished();
+                        matchHistoryService.recordIfFinished(room, session);
                     }
                     Map<String, Object> views = gameRuntimeService.projectViews(room, session);
                     realtimePublisher.gameEvents(
@@ -184,6 +189,26 @@ public class RoomService {
         );
     }
 
+    public void syncPlayerAvatar(String playerId, String avatarUrl) {
+        roomRepository.findByPlayerId(playerId).ifPresent(existing ->
+                roomLocks.withRoom(existing.getId().value(), () -> {
+                    GameRoom room = roomRepository.findById(existing.getId()).orElse(null);
+                    if (room == null) {
+                        return null;
+                    }
+                    var player = room.findPlayer(playerId).orElse(null);
+                    if (player == null) {
+                        return null;
+                    }
+                    if (!java.util.Objects.equals(avatarUrl, player.getAvatarUrl())) {
+                        player.setAvatarUrl(avatarUrl);
+                        realtimePublisher.roomSettingsChanged(room);
+                    }
+                    return null;
+                })
+        );
+    }
+
     public GameRoom ready(PlayerPrincipal principal, String rawRoomId, boolean ready) {
         RoomId roomId = RoomId.parse(rawRoomId);
         return roomLocks.withRoom(roomId.value(), () -> {
@@ -200,7 +225,8 @@ public class RoomService {
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings,
             Map<String, Object> wheresTheBoneSettings,
-            Boolean locked
+            Boolean locked,
+            Integer maxPlayers
     ) {
         RoomId roomId = RoomId.parse(rawRoomId);
         return roomLocks.withRoom(roomId.value(), () -> {
@@ -210,14 +236,17 @@ public class RoomService {
             }
             GameManifest game = gameRegistry.findById(room.getGameId())
                     .orElseThrow(RoomException::invalidSettings);
+            if (maxPlayers != null) {
+                room.updateMaxPlayers(resolveMaxPlayers(game, maxPlayers));
+            }
             Map<String, Object> next = new LinkedHashMap<>(room.getSettings());
             if (locked != null) {
                 next.put("locked", locked);
             }
             Map<String, Object> requested = new LinkedHashMap<>();
-            requested.put("nob", nobSettings);
-            requested.put("notInMyPot", notInMyPotSettings);
-            requested.put("wheresTheBone", wheresTheBoneSettings);
+            requested.put("nob", settingOrCurrent(nobSettings, "nob", room));
+            requested.put("notInMyPot", settingOrCurrent(notInMyPotSettings, "notInMyPot", room));
+            requested.put("wheresTheBone", settingOrCurrent(wheresTheBoneSettings, "wheresTheBone", room));
             next.putAll(game.normalizeRoomSettings(requested));
             room.replaceSettings(next);
             realtimePublisher.roomSettingsChanged(room);
@@ -229,7 +258,7 @@ public class RoomService {
      * Backwards-compatible overload for callers that only send NOB settings.
      */
     public GameRoom updateSettings(PlayerPrincipal principal, String rawRoomId, Map<String, Object> nobSettings) {
-        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), Map.of(), null);
+        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), Map.of(), null, null);
     }
 
     /** Backwards-compatible overload for callers that send both game settings. */
@@ -239,7 +268,7 @@ public class RoomService {
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), null);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), null, null);
     }
 
     /** Backwards-compatible overload retained for the original two-game API. */
@@ -250,7 +279,29 @@ public class RoomService {
             Map<String, Object> notInMyPotSettings,
             Boolean locked
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), locked);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), locked, null);
+    }
+
+    public GameRoom updateSettings(
+            PlayerPrincipal principal,
+            String rawRoomId,
+            Map<String, Object> nobSettings,
+            Map<String, Object> notInMyPotSettings,
+            Map<String, Object> wheresTheBoneSettings,
+            Boolean locked
+    ) {
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, wheresTheBoneSettings, locked, null);
+    }
+
+    public GameRoom kick(PlayerPrincipal principal, String rawRoomId, String targetPlayerId) {
+        RoomId roomId = RoomId.parse(rawRoomId);
+        return roomLocks.withPlayerThenRoom(targetPlayerId, roomId.value(), () -> {
+            GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
+            room.kick(principal.playerId(), targetPlayerId);
+            roomRepository.removePlayerIndex(targetPlayerId);
+            realtimePublisher.playerLeft(room, targetPlayerId);
+            return room;
+        });
     }
 
     public void close(PlayerPrincipal principal, String rawRoomId) {
@@ -352,16 +403,29 @@ public class RoomService {
                         }
                         return null;
                     }
+                    if (session.isForfeited(playerId)) {
+                        return null;
+                    }
                     AppliedAction applied = gameRuntimeService.abandon(
                             session,
                             PlayerContext.player(player.getPlayerId(), player.getDisplayName())
                     );
-                    if (applied.accepted() && applied.result().finished()) {
-                        room.markFinished();
-                        matchHistoryService.recordIfFinished(room, session);
-                        Map<String, Object> views = gameRuntimeService.projectViews(room, session);
-                        realtimePublisher.gameFinished(room, null, applied.result().winnerPlayerId(), views);
-                        recycleFinishedRoom(room);
+                    if (applied.accepted()) {
+                        if (NotInMyPotGameManifest.ID.equals(session.getGameId())) {
+                            matchHistoryService.recordForfeit(
+                                    room,
+                                    session,
+                                    player.getPlayerId(),
+                                    player.getDisplayName()
+                            );
+                        }
+                        if (applied.result().finished()) {
+                            room.markFinished();
+                            matchHistoryService.recordIfFinished(room, session);
+                            Map<String, Object> views = gameRuntimeService.projectViews(room, session);
+                            realtimePublisher.gameFinished(room, null, applied.result().winnerPlayerId(), views);
+                            recycleFinishedRoom(room);
+                        }
                     }
                     return null;
                 })
@@ -394,6 +458,13 @@ public class RoomService {
             throw RoomException.invalidMaxPlayers();
         }
         return requestedMaxPlayers;
+    }
+
+    private Object settingOrCurrent(Map<String, Object> requested, String key, GameRoom room) {
+        if (requested != null && !requested.isEmpty()) {
+            return requested;
+        }
+        return room.getSettings().get(key);
     }
 
     private void ensureNotInAnotherRoom(String playerId, RoomId targetRoom) {

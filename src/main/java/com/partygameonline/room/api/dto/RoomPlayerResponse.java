@@ -5,10 +5,16 @@ import com.partygameonline.room.domain.RoomPlayer;
 public record RoomPlayerResponse(
         String playerId,
         String displayName,
+        String avatarUrl,
         String state
 ) {
 
     public static RoomPlayerResponse from(RoomPlayer player) {
-        return new RoomPlayerResponse(player.getPlayerId(), player.getDisplayName(), player.getState().name());
+        return new RoomPlayerResponse(
+                player.getPlayerId(),
+                player.getDisplayName(),
+                player.getAvatarUrl(),
+                player.getState().name()
+        );
     }
 }

@@ -64,15 +64,9 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
                             ? List.of()
                             : effective(dice.get(playerId)));
         }
-        if (count == 4) {
-            state.setPhase(WheresTheBonePhase.WAKE_SELECTION);
-            state.setDeadline(null);
-        } else {
-            state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
-            // The standalone game gives the first night hour a short grace
-            // window while the role cards settle and clients join the table.
-            advanceNight(state, 10);
-        }
+        state.setPhase(WheresTheBonePhase.ROLE_REVEAL);
+        state.setPhaseStartedAt(Instant.now());
+        state.setDeadline(state.getPhaseStartedAt().plusSeconds(WheresTheBoneGameState.ROLE_REVEAL_SECONDS));
         state.addEvent(WheresTheBoneEvent.of("GAME_STARTED", Map.of("playerCount", count)));
         return state;
     }
@@ -403,6 +397,8 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
 
     private static void timeout(WheresTheBoneGameState state, RandomSource random, List<WheresTheBoneEvent> events) {
         switch (state.getPhase()) {
+            case ROLE_REVEAL -> finishRoleReveal(state);
+            case WAKE_SELECTION -> autoSelectWakeTimes(state, random, events);
             case NIGHT_HOUR -> {
                 String thief = state.getRoles().entrySet().stream().filter(entry -> entry.getValue() == WheresTheBoneRole.BONE_THIEF && state.isAwakeNow(entry.getKey())).map(Map.Entry::getKey).findFirst().orElse(null);
                 if (thief != null && !state.isBoneTaken() && !canThiefDelay(state)) takeBone(state, thief, events);
@@ -435,6 +431,36 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
             case VOTING -> resolveVotes(state, events);
             default -> { }
         }
+    }
+
+    private static void finishRoleReveal(WheresTheBoneGameState state) {
+        state.setPhaseStartedAt(Instant.now());
+        if (state.getPlayerIds().size() == 4) {
+            state.setPhase(WheresTheBonePhase.WAKE_SELECTION);
+            state.setDeadline(state.getPhaseStartedAt().plusSeconds(state.getSettings().nightSeconds()));
+            return;
+        }
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(0);
+        advanceNight(state, 0);
+    }
+
+    private static void autoSelectWakeTimes(
+            WheresTheBoneGameState state,
+            RandomSource random,
+            List<WheresTheBoneEvent> events
+    ) {
+        List<String> pendingPlayerIds = state.getRoles().entrySet().stream()
+                .filter(entry -> isYardSide(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .filter(playerId -> !state.hasSelectedWake(playerId))
+                .filter(playerId -> !state.diceFor(playerId).isEmpty())
+                .toList();
+        for (String playerId : pendingPlayerIds) {
+            List<Integer> dice = state.diceFor(playerId);
+            selectWakeTime(state, playerId, dice.get(random.nextInt(dice.size())), events);
+        }
+        events.add(WheresTheBoneEvent.of("WAKE_TIMES_AUTO_SELECTED", Map.of("count", pendingPlayerIds.size())));
     }
 
     private static void resolveVotes(WheresTheBoneGameState state, List<WheresTheBoneEvent> events) {
@@ -529,7 +555,10 @@ public final class WheresTheBoneGameEngine implements GameEngine<WheresTheBoneGa
         state.setPhase(WheresTheBonePhase.DISCUSSION);
         state.setCurrentHour(0);
         state.setPhaseStartedAt(Instant.now());
-        state.setDeadline(Instant.now().plusSeconds(Math.max(1, state.getPlayerIds().size() - 1) * WheresTheBoneGameState.DISCUSSION_SECONDS_PER_PLAYER));
+        state.setDeadline(Instant.now().plusSeconds(
+                Math.max(1, state.getPlayerIds().size() - 1)
+                        * WheresTheBoneGameState.DISCUSSION_SECONDS_PER_PLAYER
+        ));
     }
 
     private static void enterVoting(WheresTheBoneGameState state) {

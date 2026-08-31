@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.partygameonline.game.core.GameConfig;
 import com.partygameonline.game.core.PlayerContext;
+import com.partygameonline.game.core.RandomSource;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.wheresthebone.api.dto.WheresTheBoneView;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneAction;
@@ -11,6 +12,7 @@ import com.partygameonline.game.wheresthebone.domain.WheresTheBoneActionType;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneEvent;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneGameState;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBonePackSelectionMode;
+import com.partygameonline.game.wheresthebone.domain.WheresTheBonePeek;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBonePhase;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneRole;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneSettings;
@@ -31,8 +33,9 @@ class WheresTheBoneGameEngineTests {
         WheresTheBoneGameState state = createGame(4, Map.of());
         String thief = rolePlayer(state, WheresTheBoneRole.BONE_THIEF);
 
-        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.WAKE_SELECTION);
-        assertThat(state.getDeadline()).isNull();
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.ROLE_REVEAL);
+        assertThat(Duration.between(state.getPhaseStartedAt(), state.getDeadline()).toSeconds())
+                .isEqualTo(WheresTheBoneGameState.ROLE_REVEAL_SECONDS);
         assertThat(state.diceFor(thief)).hasSize(2);
         assertThat(state.wakeFor(thief)).containsExactlyElementsOf(
                 state.diceFor(thief).stream().distinct().sorted().toList()
@@ -40,18 +43,65 @@ class WheresTheBoneGameEngineTests {
         assertThat(state.getRoles().entrySet())
                 .filteredOn(entry -> entry.getValue() != WheresTheBoneRole.BONE_THIEF)
                 .allSatisfy(entry -> assertThat(state.wakeFor(entry.getKey())).isEmpty());
+
+        state.setDeadline(Instant.now().minusMillis(1));
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(8L));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.WAKE_SELECTION);
+        assertThat(Duration.between(state.getPhaseStartedAt(), state.getDeadline()).toSeconds())
+                .isEqualTo(state.getSettings().nightSeconds());
     }
 
     @Test
-    void firstNightHourIncludesTheStandaloneGraceWindow() {
-        WheresTheBoneGameState state = createGame(5, Map.of(
-                "wheresTheBone", Map.of("nightSeconds", 10)
+    void fourPlayerWakeSelectionTimeoutChoosesOneOfEachPendingPlayersDice() {
+        WheresTheBoneGameState state = createGame(4, Map.of(
+                "wheresTheBone", Map.of("nightSeconds", 5)
         ));
+        state.setDeadline(Instant.now().minusMillis(1));
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(8L));
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.WAKE_SELECTION);
+
+        RandomSource chooseLastDie = new RandomSource() {
+            @Override
+            public int nextInt(int bound) {
+                return bound - 1;
+            }
+
+            @Override
+            public long nextLong() {
+                return 0;
+            }
+        };
+        state.setDeadline(Instant.now().minusMillis(1));
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), chooseLastDie);
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.NIGHT_HOUR);
+        assertThat(state.getCurrentHour()).isEqualTo(1);
+        assertThat(state.getRoles().entrySet())
+                .filteredOn(entry -> entry.getValue() != WheresTheBoneRole.BONE_THIEF)
+                .allSatisfy(entry -> assertThat(state.wakeFor(entry.getKey()))
+                        .containsExactly(state.diceFor(entry.getKey()).getLast()));
+    }
+
+    @Test
+    void roleRevealLastsFifteenSecondsThenFirstNightHourUsesConfiguredDuration() {
+        WheresTheBoneGameState state = createGame(5, Map.of(
+                "wheresTheBone", Map.of("nightSeconds", 5)
+        ));
+
+        assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.ROLE_REVEAL);
+        assertThat(state.getCurrentHour()).isZero();
+        assertThat(Duration.between(state.getPhaseStartedAt(), state.getDeadline()).toSeconds())
+                .isEqualTo(WheresTheBoneGameState.ROLE_REVEAL_SECONDS);
+        assertThat(projector.project(state, player("p1")).legalActions()).isEmpty();
+
+        state.setDeadline(Instant.now().minusMillis(1));
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(9L));
 
         assertThat(state.getPhase()).isEqualTo(WheresTheBonePhase.NIGHT_HOUR);
         assertThat(state.getCurrentHour()).isEqualTo(1);
         assertThat(Duration.between(state.getPhaseStartedAt(), state.getDeadline()).toMillis())
-                .isBetween(19_000L, 20_000L);
+                .isBetween(5_000L, 5_100L);
     }
 
     @Test
@@ -215,6 +265,55 @@ class WheresTheBoneGameEngineTests {
     }
 
     @Test
+    void disabledHistoryHidesPrivateNightDetailsAtDiscussionButKeepsPackKnowledge() {
+        WheresTheBoneGameState state = state(8);
+        assignRoles(state, false);
+        state.setSettings(new WheresTheBoneSettings(5, 5, false, false));
+        state.getRoles().put("p2", WheresTheBoneRole.PACKMATE);
+        state.getRoles().put("p3", WheresTheBoneRole.PACKMATE);
+        state.getPackmates().addAll(List.of("p2", "p3"));
+        state.getDiceRolls().put("p2", List.of(2));
+        state.getWakeHours().put("p2", List.of(2));
+        state.peekFor("p2").add(new WheresTheBonePeek("p4", List.of(4)));
+        state.coAwakeFor("p2").put(2, java.util.Set.of("p3"));
+        state.witnessedFor("p2").add(2);
+        state.observedPresentFor("p2").add(1);
+        state.observedMissingFor("p2").add(3);
+        state.setBoneTaken(true);
+        state.setBoneTakenBy("p1");
+        state.setBoneTakenHour(2);
+        state.setPhase(WheresTheBonePhase.NIGHT_HOUR);
+        state.setCurrentHour(2);
+
+        WheresTheBoneView duringNight = projector.project(state, player("p2"));
+        assertThat(duringNight.myDice()).containsExactly(2);
+        assertThat(duringNight.myWakeHours()).containsExactly(2);
+        assertThat(duringNight.myPeekResults()).containsKey("p4");
+        assertThat(duringNight.myWitnessedBoneTakenHours()).containsExactly(2);
+        assertThat(duringNight.boneTakenBy()).isEqualTo("p1");
+
+        state.setPhase(WheresTheBonePhase.DISCUSSION);
+        WheresTheBoneView discussion = projector.project(state, player("p2"));
+
+        assertThat(discussion.myDice()).isEmpty();
+        assertThat(discussion.myWakeHours()).isEmpty();
+        assertThat(discussion.mySelectedWakeHours()).isEmpty();
+        assertThat(discussion.myPeekResults()).isEmpty();
+        assertThat(discussion.myPeekCount()).isZero();
+        assertThat(discussion.myClues()).isEmpty();
+        assertThat(discussion.myCoAwakeRecords()).isEmpty();
+        assertThat(discussion.myWitnessedBoneTakenHours()).isEmpty();
+        assertThat(discussion.myObservedBonePresentHours()).isEmpty();
+        assertThat(discussion.myObservedBoneMissingHours()).isEmpty();
+        assertThat(discussion.boneTakenBy()).isNull();
+        assertThat(discussion.boneTakenHour()).isNull();
+        assertThat(discussion.players()).filteredOn(player -> player.playerId().equals("p2"))
+                .allMatch(player -> player.wakeHours().isEmpty());
+        assertThat(discussion.knownPackmateIds()).containsExactly("p3");
+        assertThat(discussion.knownBoneThiefId()).isEqualTo("p1");
+    }
+
+    @Test
     void privateNightActionsNeverAppearInPublicHistory() {
         WheresTheBoneGameState state = state(5);
         assignRoles(state, false);
@@ -232,6 +331,8 @@ class WheresTheBoneGameEngineTests {
     @Test
     void abandoningWakeSelectionAutoSelectsAndRemovesThePlayerFromNightActions() {
         WheresTheBoneGameState state = createGame(4, Map.of());
+        state.setDeadline(Instant.now().minusMillis(1));
+        engine.apply(state, player("p1"), action(WheresTheBoneActionType.TIMEOUT, null), new SeededRandomSource(8));
         String abandoned = state.getRoles().entrySet().stream()
                 .filter(entry -> entry.getValue() != WheresTheBoneRole.BONE_THIEF)
                 .map(Map.Entry::getKey)

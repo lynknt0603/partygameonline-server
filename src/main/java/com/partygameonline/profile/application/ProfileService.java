@@ -1,6 +1,7 @@
 package com.partygameonline.profile.application;
 
 import com.partygameonline.common.error.ApiException;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.room.application.RoomService;
 import com.partygameonline.security.PlayerAuthentication;
 import com.partygameonline.session.domain.PlayerPrincipal;
@@ -50,11 +51,50 @@ public class ProfileService {
         }
 
         PlayerPrincipal updated = current.withDisplayName(displayName);
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new PlayerAuthentication(updated));
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, request, response);
+        saveSecurityContext(updated, request, response);
         roomService.syncPlayerDisplayName(updated.playerId(), updated.displayName());
         return updated;
+    }
+
+    @Transactional
+    public PlayerPrincipal updateAvatar(
+            PlayerPrincipal current,
+            String requestedAvatarKey,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        if (current.kind() != SessionKind.MEMBER) {
+            throw new ApiException(
+                    "MEMBER_REQUIRED",
+                    HttpStatus.FORBIDDEN,
+                    "Only member accounts can select an avatar"
+            );
+        }
+        if (!AvatarCatalog.isSelectable(requestedAvatarKey)) {
+            throw new ApiException("INVALID_AVATAR", HttpStatus.BAD_REQUEST, "Avatar is not available");
+        }
+
+        String avatarKey = AvatarCatalog.normalizeKey(requestedAvatarKey);
+        UserEntity user = userRepository.findByUserKey(current.playerId())
+                .orElseThrow(() -> new ApiException(
+                        "PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found"
+                ));
+        user.selectAvatar(avatarKey);
+
+        PlayerPrincipal updated = current.withAvatarUrl(AvatarCatalog.urlForKey(avatarKey));
+        saveSecurityContext(updated, request, response);
+        roomService.syncPlayerAvatar(updated.playerId(), updated.avatarUrl());
+        return updated;
+    }
+
+    private void saveSecurityContext(
+            PlayerPrincipal principal,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new PlayerAuthentication(principal));
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
     }
 }

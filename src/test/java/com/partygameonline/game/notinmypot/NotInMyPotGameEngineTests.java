@@ -3,7 +3,9 @@ package com.partygameonline.game.notinmypot;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.partygameonline.game.core.GameConfig;
+import com.partygameonline.game.core.GameEloChange;
 import com.partygameonline.game.core.PlayerContext;
+import com.partygameonline.game.core.RandomSource;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
 import com.partygameonline.game.notinmypot.api.dto.NotInMyPotView;
@@ -27,6 +29,8 @@ import java.util.Map;
 import java.util.Set;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class NotInMyPotGameEngineTests {
 
@@ -102,9 +106,16 @@ class NotInMyPotGameEngineTests {
     }
 
     @Test
-    void anExpiredNormalTurnCanBeTimedOutAndAdvancesToTheNextPlayer() {
+    void anExpiredNormalTurnRandomlyPlaysOneIngredientAndAdvancesToTheNextPlayer() {
         NotInMyPotGameState state = newGame(3);
-        String previousPlayerId = state.getCurrentPlayerId();
+        NotInMyPotPlayerState actor = currentPlayer(state);
+        String previousPlayerId = actor.getPlayerId();
+        NotInMyPotCard selected = ingredient("timeout-selected", NotInMyPotIngredientType.SALT);
+        replaceHand(actor,
+                ingredient("timeout-first", NotInMyPotIngredientType.VEGETABLE),
+                selected,
+                ingredient("timeout-last", NotInMyPotIngredientType.MEAT));
+        ensureDrawPile(state, 5);
         state.setTurnDeadline(Instant.now().minusSeconds(1));
         NotInMyPotAction timeout = new NotInMyPotAction(
                 NotInMyPotAction.TIMEOUT,
@@ -118,14 +129,73 @@ class NotInMyPotGameEngineTests {
         );
 
         assertThat(engine.validate(state, player(state.requirePlayer(previousPlayerId)), timeout).valid()).isTrue();
-        engine.apply(state, player(state.requirePlayer(previousPlayerId)), timeout, new SeededRandomSource(12L));
+        engine.apply(state, player(state.requirePlayer(previousPlayerId)), timeout, new FixedRandomSource(1));
 
+        assertThat(state.getPot().getFirst()).isEqualTo(selected);
+        assertThat(actor.getHand()).extracting(NotInMyPotCard::cardId)
+                .doesNotContain(selected.cardId());
         assertThat(state.getCurrentPlayerId()).isNotEqualTo(previousPlayerId);
         assertThat(state.getPublicEvents()).anySatisfy(event -> {
             if ("TURN_TIMED_OUT".equals(event.type())) {
-                assertThat(event.payload()).containsEntry("playerId", previousPlayerId);
+                assertThat(event.payload())
+                        .containsEntry("playerId", previousPlayerId)
+                        .containsEntry("automatic", true);
             }
         });
+    }
+
+    @ParameterizedTest
+    @EnumSource(NotInMyPotIngredientType.class)
+    void timeoutCanAutomaticallyPlayEveryIngredientType(NotInMyPotIngredientType type) {
+        NotInMyPotGameState state = newGame(4);
+        NotInMyPotPlayerState actor = currentPlayer(state);
+        NotInMyPotCard selected = ingredient("timeout-ingredient-" + type, type);
+        replaceHand(actor,
+                ingredient("timeout-ingredient-first-" + type, NotInMyPotIngredientType.SALT),
+                selected,
+                ingredient("timeout-ingredient-last-" + type, NotInMyPotIngredientType.SALT));
+        ensureDrawPile(state, 10);
+
+        applyExpiredTurn(state, actor, new FixedRandomSource(1), "timeout-ingredient-command-" + type);
+
+        assertThat(state.getPot().getFirst()).isEqualTo(selected);
+        assertThat(state.getPublicEvents()).anyMatch(event -> "INGREDIENT_DECLARED".equals(event.type()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(NotInMyPotActionType.class)
+    void timeoutCanAutomaticallyPlayEveryActionCardType(NotInMyPotActionType type) {
+        NotInMyPotGameState state = newGame(4);
+        NotInMyPotPlayerState actor = currentPlayer(state);
+        NotInMyPotCard first = NotInMyPotCard.action("timeout-action-first-" + type, type);
+        NotInMyPotCard selected = NotInMyPotCard.action("timeout-action-selected-" + type, type);
+        NotInMyPotCard last = NotInMyPotCard.action("timeout-action-last-" + type, type);
+        replaceHand(actor, first, selected, last);
+        state.getPot().addFirst(ingredient("timeout-pot-bottom-" + type, NotInMyPotIngredientType.MEAT));
+        state.getPot().addFirst(ingredient("timeout-pot-top-" + type, NotInMyPotIngredientType.VEGETABLE));
+        ensureDrawPile(state, 20);
+
+        applyExpiredTurn(state, actor, new FixedRandomSource(1), "timeout-action-command-" + type);
+
+        assertThat(actor.getHand()).extracting(NotInMyPotCard::cardId).doesNotContain(selected.cardId());
+        assertThat(state.getDiscardPile()).extracting(NotInMyPotCard::cardId).contains(selected.cardId());
+        assertThat(state.getPublicEvents()).filteredOn(event -> "ACTION_STARTED".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> assertThat(event.payload()).containsEntry("actionType", type.name()));
+
+        switch (type) {
+            case OUT_OF_HOUSE -> assertThat(state.getPlayers().stream()
+                    .mapToInt(player -> state.doorCount(player.getPlayerId()))
+                    .sum()).isEqualTo(1);
+            case SCOOP_OUT -> assertThat(state.getPublicEvents())
+                    .anyMatch(event -> "SCOOP_OUT_RESOLVED".equals(event.type()));
+            case SLOTTED_SPOON -> assertThat(state.getPendingAction().type())
+                    .isEqualTo(NotInMyPotPendingType.INSPECT_SHUFFLED_POT);
+            case EMERGENCY_SHOPPING -> assertThat(state.getPendingAction().type())
+                    .isEqualTo(NotInMyPotPendingType.RETURN_SHOPPING_CARDS);
+            case TRASH_OUT -> assertThat(state.getPublicEvents())
+                    .anyMatch(event -> "TRASH_OUT_RESOLVED".equals(event.type()));
+        }
     }
 
     @Test
@@ -165,6 +235,12 @@ class NotInMyPotGameEngineTests {
         List<?> events = engine.apply(state, player(actor), action, new SeededRandomSource(4)).events();
 
         assertThat(state.getPot().getFirst()).isEqualTo(meat);
+        assertThat(state.getPublicEvents()).filteredOn(event -> "CARDS_DRAWN".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> assertThat(event.payload())
+                        .containsEntry("playerId", actor.getPlayerId())
+                        .containsEntry("drawnCount", 1)
+                        .containsEntry("reason", "TURN_REFILL"));
         assertThat(events).anySatisfy(event -> {
             var typed = (com.partygameonline.game.notinmypot.domain.NotInMyPotEvent) event;
             if ("INGREDIENT_DECLARED".equals(typed.type())) {
@@ -225,6 +301,11 @@ class NotInMyPotGameEngineTests {
         assertThat(target.getHand()).isEmpty();
         assertThat(state.getPublicRoles()).containsEntry(target.getPlayerId(), target.getRole());
         assertThat(state.getPublicEvents()).anySatisfy(event -> {
+            if ("PLAYER_DOOR_UPDATED".equals(event.type())) {
+                assertThat(event.payload())
+                        .containsEntry("actorPlayerId", actor.getPlayerId())
+                        .containsEntry("playerId", target.getPlayerId());
+            }
             if ("PLAYER_EXPELLED".equals(event.type())) {
                 assertThat(event.payload()).containsEntry("role", target.getRole().name());
             }
@@ -327,6 +408,12 @@ class NotInMyPotGameEngineTests {
         engine.apply(state, player(actor), play, new SeededRandomSource(11));
         assertThat(state.getPendingAction().type()).isEqualTo(NotInMyPotPendingType.RETURN_SHOPPING_CARDS);
         assertThat(actor.getHand()).hasSize(5);
+        assertThat(state.getPublicEvents()).filteredOn(event -> "CARDS_DRAWN".equals(event.type()))
+                .singleElement()
+                .satisfies(event -> assertThat(event.payload())
+                        .containsEntry("playerId", actor.getPlayerId())
+                        .containsEntry("drawnCount", 3)
+                        .containsEntry("reason", "EMERGENCY_SHOPPING"));
         assertThat(projector.project(state, player(actor)).pendingAction().allowedCardIds())
                 .containsExactlyInAnyOrderElementsOf(actor.getHand().stream().map(NotInMyPotCard::cardId).toList());
 
@@ -383,6 +470,13 @@ class NotInMyPotGameEngineTests {
                 .extracting(event -> event.payload().keySet())
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.COLLECTION)
                 .doesNotContain("cardIds");
+        assertThat(state.getPublicEvents())
+                .filteredOn(event -> "CARDS_DRAWN".equals(event.type())
+                        && "TRASH_REPLACEMENT".equals(event.payload().get("reason")))
+                .singleElement()
+                .satisfies(event -> assertThat(event.payload())
+                        .containsEntry("playerId", target.getPlayerId())
+                        .containsEntry("drawnCount", 3));
     }
 
     @Test
@@ -664,6 +758,30 @@ class NotInMyPotGameEngineTests {
         ).doesNotContainValue(actorRole));
     }
 
+    @Test
+    void keepsEveryForfeitDeltaWhenFinalEloChangesAreRecorded() {
+        NotInMyPotGameState state = newGame(4);
+
+        state.recordEloChanges(Map.of(
+                "player-0",
+                new GameEloChange("player-0", false, 5000, -100, 4900),
+                "player-1",
+                new GameEloChange("player-1", false, 5100, -100, 5000)
+        ));
+        state.recordEloChanges(Map.of(
+                "player-2",
+                new GameEloChange("player-2", true, 5000, 50, 5050),
+                "player-3",
+                new GameEloChange("player-3", false, 5000, -50, 4950)
+        ));
+
+        assertThat(state.getEloChanges()).hasSize(4);
+        assertThat(state.getEloChanges().get("player-0").eloDelta()).isEqualTo(-100);
+        assertThat(state.getEloChanges().get("player-1").eloDelta()).isEqualTo(-100);
+        assertThat(state.getEloChanges().get("player-2").eloDelta()).isEqualTo(50);
+        assertThat(state.getEloChanges().get("player-3").eloDelta()).isEqualTo(-50);
+    }
+
     private NotInMyPotGameState newGame(int playerCount) {
         Map<String, String> names = new HashMap<>();
         List<String> playerIds = new ArrayList<>();
@@ -715,6 +833,27 @@ class NotInMyPotGameEngineTests {
         );
     }
 
+    private void applyExpiredTurn(
+            NotInMyPotGameState state,
+            NotInMyPotPlayerState actor,
+            RandomSource random,
+            String commandId
+    ) {
+        state.setTurnDeadline(Instant.now().minusSeconds(1));
+        NotInMyPotAction timeout = new NotInMyPotAction(
+                NotInMyPotAction.TIMEOUT,
+                commandId,
+                state.getStateVersion(),
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+        assertThat(engine.validate(state, player(actor), timeout).valid()).isTrue();
+        engine.apply(state, player(actor), timeout, random);
+    }
+
     private static NotInMyPotCard ingredient(String id, NotInMyPotIngredientType type) {
         return NotInMyPotCard.ingredient(id, type);
     }
@@ -728,6 +867,19 @@ class NotInMyPotGameEngineTests {
         state.getDrawPile().clear();
         for (int index = 0; index < count; index++) {
             state.getDrawPile().add(ingredient("draw-" + index + "-" + count, NotInMyPotIngredientType.SALT));
+        }
+    }
+
+    private record FixedRandomSource(int index) implements RandomSource {
+
+        @Override
+        public int nextInt(int bound) {
+            return Math.floorMod(index, bound);
+        }
+
+        @Override
+        public long nextLong() {
+            return index;
         }
     }
 }

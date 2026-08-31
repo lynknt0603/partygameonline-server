@@ -27,6 +27,43 @@ class GameRoomTests {
     }
 
     @Test
+    void cannotShrinkCapacityBelowCurrentOccupancy() {
+        GameRoom room = new GameRoom(
+                RoomId.parse("ABCD"),
+                new RoomName("Linh's Room"),
+                "wheres-the-bone",
+                "host",
+                "Linh",
+                8,
+                RoomVisibility.PUBLIC,
+                Instant.parse("2026-08-19T00:00:00Z")
+        );
+        room.join("p2", "Guest");
+        room.join("p3", "Other");
+
+        assertThatThrownBy(() -> room.updateMaxPlayers(2))
+                .extracting(ex -> ((RoomException) ex).getErrorCode())
+                .isEqualTo("MAX_PLAYERS_BELOW_CURRENT_COUNT");
+        assertThat(room.getMaxPlayers()).isEqualTo(8);
+
+        room.updateMaxPlayers(3);
+        assertThat(room.getMaxPlayers()).isEqualTo(3);
+    }
+
+    @Test
+    void hostCanKickAnotherPlayerOnlyWhileWaiting() {
+        GameRoom room = waitingRoom();
+        room.join("p2", "Guest");
+
+        room.kick("host", "p2");
+        assertThat(room.findPlayer("p2")).isEmpty();
+
+        assertThatThrownBy(() -> room.kick("host", "host"))
+                .extracting(ex -> ((RoomException) ex).getErrorCode())
+                .isEqualTo("CANNOT_KICK_HOST");
+    }
+
+    @Test
     void lockedRoomRejectsNewPlayersAndIsHiddenFromPublicWaitingList() {
         GameRoom room = waitingRoom();
         room.replaceSettings(Map.of("locked", true));

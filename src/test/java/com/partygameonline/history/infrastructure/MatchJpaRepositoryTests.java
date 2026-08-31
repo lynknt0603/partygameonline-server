@@ -65,4 +65,38 @@ class MatchJpaRepositoryTests {
                 MatchPlayerEntity.newPlayer(match.getId(), null, "P1", "Linh", 1)
         )).isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    void loadsPlayerHistoryForOnlyTheRequestedGame() {
+        MatchEntity wheresTheBone = matchJpaRepository.saveAndFlush(MatchEntity.completed(
+                "wheres-the-bone",
+                "ROOM1",
+                "P1",
+                "COMPLETED",
+                Instant.now().minusSeconds(60),
+                Instant.now()
+        ));
+        MatchEntity anotherGame = matchJpaRepository.saveAndFlush(MatchEntity.completed(
+                "night-of-bloodlines",
+                "ROOM2",
+                "P1",
+                "COMPLETED",
+                Instant.now().minusSeconds(60),
+                Instant.now()
+        ));
+        matchPlayerJpaRepository.saveAndFlush(MatchPlayerEntity.newPlayer(
+                wheresTheBone.getId(), null, "P1", "Dog", 0, "WIN", null, "WHITE_DOG", null
+        ));
+        matchPlayerJpaRepository.saveAndFlush(MatchPlayerEntity.newPlayer(
+                anotherGame.getId(), null, "P1", "Vampire", 0, "WIN", null, "WHITE_DOG", null
+        ));
+
+        List<MatchPlayerEntity> players = matchPlayerJpaRepository
+                .findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc("wheres-the-bone", List.of("P1"));
+
+        assertThat(players).singleElement().satisfies(player -> {
+            assertThat(player.getMatchId()).isEqualTo(wheresTheBone.getId());
+            assertThat(player.getRole()).isEqualTo("WHITE_DOG");
+        });
+    }
 }

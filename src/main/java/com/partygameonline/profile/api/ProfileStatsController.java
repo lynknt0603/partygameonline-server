@@ -1,6 +1,7 @@
 package com.partygameonline.profile.api;
 
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.profile.api.dto.UpdateAvatarRequest;
 import com.partygameonline.profile.api.dto.UpdateDisplayNameRequest;
 import com.partygameonline.profile.application.ProfileService;
 import com.partygameonline.profile.application.ProfileStatsService;
@@ -57,5 +58,24 @@ public class ProfileStatsController {
     @GetMapping("/stats")
     public ProfileStatsResponse stats(@AuthenticationPrincipal PlayerPrincipal principal) {
         return profileStatsService.getStats(principal);
+    }
+
+    @PatchMapping("/avatar")
+    public SessionResponse updateAvatar(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @Valid @RequestBody UpdateAvatarRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse
+    ) {
+        PlayerPrincipal updated = profileService.updateAvatar(
+                principal,
+                request.avatarKey(),
+                httpRequest,
+                httpResponse
+        );
+        String roomId = roomRepository.findByPlayerId(updated.playerId())
+                .map(room -> room.getId().value())
+                .orElse(null);
+        return SessionResponse.from(updated, roomId);
     }
 }

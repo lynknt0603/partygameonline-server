@@ -1,6 +1,7 @@
 package com.partygameonline.room.domain;
 
 import com.partygameonline.common.UniqueDisplayNames;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,7 +17,7 @@ public class GameRoom {
     private final RoomName name;
     private final String gameId;
     private String hostPlayerId;
-    private final int maxPlayers;
+    private int maxPlayers;
     private final RoomVisibility visibility;
     private final Instant createdAt;
     private RoomStatus status;
@@ -34,6 +35,30 @@ public class GameRoom {
             RoomVisibility visibility,
             Instant createdAt
     ) {
+        this(
+                id,
+                name,
+                gameId,
+                hostPlayerId,
+                hostDisplayName,
+                AvatarCatalog.DEFAULT_URL,
+                maxPlayers,
+                visibility,
+                createdAt
+        );
+    }
+
+    public GameRoom(
+            RoomId id,
+            RoomName name,
+            String gameId,
+            String hostPlayerId,
+            String hostDisplayName,
+            String hostAvatarUrl,
+            int maxPlayers,
+            RoomVisibility visibility,
+            Instant createdAt
+    ) {
         this.id = id;
         this.name = name;
         this.gameId = gameId;
@@ -42,7 +67,12 @@ public class GameRoom {
         this.visibility = visibility;
         this.createdAt = createdAt;
         this.status = RoomStatus.WAITING;
-        this.players.add(new RoomPlayer(hostPlayerId, hostDisplayName, PlayerLobbyState.CONNECTED));
+        this.players.add(new RoomPlayer(
+                hostPlayerId,
+                hostDisplayName,
+                hostAvatarUrl,
+                PlayerLobbyState.CONNECTED
+        ));
     }
 
     public RoomId getId() {
@@ -106,6 +136,19 @@ public class GameRoom {
         }
     }
 
+    /**
+     * Changes the lobby capacity before the game starts. The room cannot be
+     * shrunk below its current occupancy; otherwise an existing player would
+     * be left in a room that can no longer contain them.
+     */
+    public void updateMaxPlayers(int nextMaxPlayers) {
+        requireWaiting();
+        if (nextMaxPlayers < players.size()) {
+            throw RoomException.maxPlayersBelowCurrentCount(players.size(), nextMaxPlayers);
+        }
+        this.maxPlayers = nextMaxPlayers;
+    }
+
     public boolean isPublicWaiting() {
         return visibility == RoomVisibility.PUBLIC && status == RoomStatus.WAITING && !isLocked();
     }
@@ -119,6 +162,10 @@ public class GameRoom {
     }
 
     public void join(String playerId, String displayName) {
+        join(playerId, displayName, AvatarCatalog.DEFAULT_URL);
+    }
+
+    public void join(String playerId, String displayName, String avatarUrl) {
         requireWaiting();
         if (findPlayer(playerId).isPresent()) {
             throw RoomException.alreadyJoined();
@@ -129,7 +176,12 @@ public class GameRoom {
         if (players.size() >= maxPlayers) {
             throw RoomException.full();
         }
-        players.add(new RoomPlayer(playerId, uniqueJoinName(displayName), PlayerLobbyState.CONNECTED));
+        players.add(new RoomPlayer(
+                playerId,
+                uniqueJoinName(displayName),
+                avatarUrl,
+                PlayerLobbyState.CONNECTED
+        ));
     }
 
     private List<String> currentDisplayNames() {
@@ -157,6 +209,18 @@ public class GameRoom {
         if (hostPlayerId.equals(playerId) && !players.isEmpty()) {
             hostPlayerId = players.getFirst().getPlayerId();
         }
+    }
+
+    public void kick(String actorPlayerId, String targetPlayerId) {
+        requireWaiting();
+        if (!hostPlayerId.equals(actorPlayerId)) {
+            throw RoomException.notHost();
+        }
+        if (hostPlayerId.equals(targetPlayerId)) {
+            throw RoomException.cannotKickHost();
+        }
+        RoomPlayer target = findPlayer(targetPlayerId).orElseThrow(RoomException::notMember);
+        players.remove(target);
     }
 
     public void setReady(String playerId, boolean ready) {

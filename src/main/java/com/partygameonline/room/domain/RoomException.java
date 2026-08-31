@@ -57,6 +57,18 @@ public class RoomException extends ApiException {
         return new RoomException("INVALID_MAX_PLAYERS", HttpStatus.BAD_REQUEST, "maxPlayers is outside the game limits");
     }
 
+    public static RoomException maxPlayersBelowCurrentCount(int currentCount, int requestedMaxPlayers) {
+        return new RoomException(
+                "MAX_PLAYERS_BELOW_CURRENT_COUNT",
+                HttpStatus.CONFLICT,
+                "The room currently has " + currentCount + " players; maxPlayers cannot be set to " + requestedMaxPlayers
+        );
+    }
+
+    public static RoomException cannotKickHost() {
+        return new RoomException("CANNOT_KICK_HOST", HttpStatus.BAD_REQUEST, "The host cannot be kicked from the room");
+    }
+
     public static RoomException invalidSettings() {
         return new RoomException("INVALID_SETTINGS", HttpStatus.BAD_REQUEST, "These settings are not valid for this game");
     }

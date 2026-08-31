@@ -337,7 +337,6 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
 
     @Override
     public void recordEloChanges(Map<String, GameEloChange> changes) {
-        eloChanges.clear();
         if (changes != null) {
             eloChanges.putAll(changes);
         }

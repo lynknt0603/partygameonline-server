@@ -10,6 +10,7 @@ import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.common.error.ApiException;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
@@ -32,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ProfileStatsService {
 
-    private static final String DEFAULT_AVATAR = "/assets/avatar-default.png";
     private static final String PLATFORM = "Web";
     private static final DateTimeFormatter JOINED_AT_FORMAT =
             DateTimeFormatter.ofPattern("dd/MM/yyyy").withZone(ZoneOffset.UTC);
@@ -187,7 +187,7 @@ public class ProfileStatsService {
                         playerId,
                         username,
                         displayName,
-                        DEFAULT_AVATAR,
+                        avatarUrlForPlayer(playerId),
                         JOINED_AT_FORMAT.format(joinedAt),
                         role,
                         PLATFORM
@@ -247,6 +247,16 @@ public class ProfileStatsService {
         return userRepository.findByUserKey(playerId)
                 .map(UserEntity::getUsername)
                 .orElse(null);
+    }
+
+    private String avatarUrlForPlayer(String playerId) {
+        if (userRepository == null) {
+            return AvatarCatalog.DEFAULT_URL;
+        }
+        return userRepository.findByUserKey(playerId)
+                .map(UserEntity::getAvatarKey)
+                .map(AvatarCatalog::urlForKey)
+                .orElse(AvatarCatalog.DEFAULT_URL);
     }
 
     private List<NobGameRoundEntity> roundRows(List<MatchEntity> matches, String playerId) {

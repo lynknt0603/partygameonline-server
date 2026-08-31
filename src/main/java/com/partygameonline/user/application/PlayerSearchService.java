@@ -2,6 +2,7 @@ package com.partygameonline.user.application;
 
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.user.api.dto.PlayerSearchResponse;
 import com.partygameonline.user.infrastructure.UserEntity;
 import com.partygameonline.user.infrastructure.UserJpaRepository;
@@ -71,7 +72,8 @@ public class PlayerSearchService {
         return new PlayerSearchResponse(
                 user.getUserKey(),
                 user.getUsername(),
-                user.getDisplayName()
+                user.getDisplayName(),
+                AvatarCatalog.urlForKey(user.getAvatarKey())
         );
     }
 
@@ -79,7 +81,8 @@ public class PlayerSearchService {
         return new PlayerSearchResponse(
                 player.getPlayerId(),
                 null,
-                player.getDisplayName()
+                player.getDisplayName(),
+                AvatarCatalog.DEFAULT_URL
         );
     }
 }

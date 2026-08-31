@@ -7,6 +7,7 @@ import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.ranking.api.dto.RankingResponse;
@@ -175,6 +176,75 @@ class RankingServiceTests {
         assertThat(response.podium().getFirst().favoriteBloodline()).isNull();
     }
 
+    @Test
+    void wheresTheBoneRoleRankingCountsWinsForTheSelectedRole() {
+        UserGameStatisticEntity alpha = UserGameStatisticEntity.newStatistic(
+                "dog-alpha",
+                WheresTheBoneGameManifest.ID
+        );
+        UserGameStatisticEntity beta = UserGameStatisticEntity.newStatistic(
+                "dog-beta",
+                WheresTheBoneGameManifest.ID
+        );
+        UserGameStatisticEntity cursed = UserGameStatisticEntity.newStatistic(
+                "dog-cursed",
+                WheresTheBoneGameManifest.ID
+        );
+        List<String> playerIds = List.of("dog-alpha", "dog-beta", "dog-cursed");
+        when(statisticRepository.findByGameCode(WheresTheBoneGameManifest.ID))
+                .thenReturn(List.of(alpha, beta, cursed));
+        when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(playerIds))
+                .thenReturn(List.of(
+                        player("dog-alpha", "Alpha", "WIN", "WHITE_DOG"),
+                        player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
+                        player("dog-cursed", "Cursed", "WIN", "PACKMATE")
+                ));
+        when(matchPlayerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(
+                WheresTheBoneGameManifest.ID,
+                playerIds
+        )).thenReturn(List.of(
+                player("dog-alpha", "Alpha", "WIN", "WHITE_DOG"),
+                player("dog-alpha", "Alpha", "LOSS", "WHITE_DOG"),
+                player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
+                player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
+                player("dog-cursed", "Cursed", "WIN", "PACKMATE")
+        ));
+
+        RankingResponse whiteDogs = rankingService.getRanking(
+                WheresTheBoneGameManifest.ID,
+                "roleWins",
+                null,
+                "WHITE_DOG",
+                0,
+                7,
+                null
+        );
+
+        assertThat(whiteDogs.role()).isEqualTo("WHITE_DOG");
+        assertThat(whiteDogs.totalPlayers()).isEqualTo(2);
+        assertThat(whiteDogs.podium()).extracting(RankingResponse.RankingEntry::displayName)
+                .containsExactly("Beta", "Alpha");
+        assertThat(whiteDogs.podium()).extracting(RankingResponse.RankingEntry::favoriteRole)
+                .containsOnly("WHITE_DOG");
+        assertThat(whiteDogs.podium()).extracting(RankingResponse.RankingEntry::roleWins)
+                .containsExactly(2, 1);
+
+        RankingResponse cursedDogs = rankingService.getRanking(
+                WheresTheBoneGameManifest.ID,
+                "roleWins",
+                null,
+                "PACKMATE",
+                0,
+                7,
+                null
+        );
+        assertThat(cursedDogs.podium()).singleElement().satisfies(entry -> {
+            assertThat(entry.displayName()).isEqualTo("Cursed");
+            assertThat(entry.favoriteRole()).isEqualTo("PACKMATE");
+            assertThat(entry.roleWins()).isEqualTo(1);
+        });
+    }
+
     private static UserGameStatisticEntity statistic(String playerId, int delta) {
         UserGameStatisticEntity statistic = UserGameStatisticEntity.newStatistic(playerId, NobGameManifest.ID);
         statistic.applyRatingDelta(delta);
@@ -193,6 +263,20 @@ class RankingServiceTests {
                 false,
                 4,
                 Instant.now()
+        );
+    }
+
+    private static MatchPlayerEntity player(String playerId, String displayName, String result, String role) {
+        return MatchPlayerEntity.newPlayer(
+                UUID.randomUUID(),
+                null,
+                playerId,
+                displayName,
+                0,
+                result,
+                null,
+                role,
+                null
         );
     }
 }

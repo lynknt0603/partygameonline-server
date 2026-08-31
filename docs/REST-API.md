@@ -75,12 +75,15 @@ Generic `POST /api/v1/rooms/{roomId}/start` starts NOB rooms once all required p
 
 `GET /api/v1/rankings` uses the selected game's ELO state from
 `user_game_statistic`; omit `gameId` for the default NOB ranking or pass
-`gameId=not-in-my-pot` for Not In My Pot.
-`sort` accepts `highestElo`, `wins`, or `bloodlineWins`; `bloodline` optionally
-filters to `VAMPIRE`, `WEREWOLF`, or `HALFBLOOD`. The response includes the top
+`gameId=not-in-my-pot` for Not In My Pot or `gameId=wheres-the-bone` for
+Where's the Bone. `sort` accepts `highestElo`, `wins`, `bloodlineWins`, or
+`roleWins`; `bloodline` optionally filters NOB to `VAMPIRE`, `WEREWOLF`, or
+`HALFBLOOD`. For Where's the Bone, `role` optionally filters role-win rankings
+to `WHITE_DOG`, `YARD_DOG`, `BONE_THIEF`, or `PACKMATE`. The response includes the top
 three `podium` entries, paged rows in `entries`, and the current player's `me`
-entry when they are ranked. Member entries also include `username` so the web
-client can link to `/profile/{username}`.
+entry when they are ranked. Each Where's the Bone entry includes `favoriteRole`
+and `roleWins`. Member entries also include `username` so the web client can link
+to `/profile/{username}`.
 
 ### PlayerSearchResponse
 

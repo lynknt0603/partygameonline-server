@@ -43,6 +43,9 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         boolean publicPhase = state.getPhase() == WheresTheBonePhase.DISCUSSION
                 || state.getPhase() == WheresTheBonePhase.VOTING
                 || state.isFinished();
+        boolean hidePrivateNightHistory = !state.getSettings().showActionHistory()
+                && (state.getPhase() == WheresTheBonePhase.DISCUSSION
+                || state.getPhase() == WheresTheBonePhase.VOTING);
         String phase = witnessSelection && viewerRole != WheresTheBoneRole.BONE_THIEF
                 ? WheresTheBonePhase.NIGHT_HOUR.name()
                 : state.getPhase().name();
@@ -56,7 +59,9 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         Set<String> visibleAwake = viewerAwake ? state.awakePlayerIds() : Set.of();
         List<String> currentAwake = visibleAwake.stream().filter(id -> !id.equals(viewerId)).toList();
         List<WheresTheBonePlayerView> players = state.getPlayerIds().stream()
-                .map(id -> playerView(state, id, viewerId, visibleAwake, state.isFinished(), publicPhase))
+                .map(id -> playerView(
+                        state, id, viewerId, visibleAwake, state.isFinished(), publicPhase, hidePrivateNightHistory
+                ))
                 .toList();
 
         List<String> knownPackmates = knownPackmates(state, viewerId, viewerRole);
@@ -64,15 +69,15 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         List<String> candidates = inGame && viewerRole == WheresTheBoneRole.BONE_THIEF
                 && state.getPhase() == WheresTheBonePhase.PACK_SELECTION
                 ? List.copyOf(state.getPendingPackCandidates()) : List.of();
-        List<WheresTheBonePeek> viewerPeeks = inGame
+        List<WheresTheBonePeek> viewerPeeks = inGame && !hidePrivateNightHistory
                 ? state.getPeekResults().getOrDefault(viewerId, List.of()) : List.of();
         Map<String, List<Integer>> peekResults = inGame
                 ? viewerPeeks.stream()
                 .collect(Collectors.toMap(WheresTheBonePeek::targetPlayerId, WheresTheBonePeek::wakeHours,
                         (left, right) -> right, LinkedHashMap::new))
                 : Map.of();
-        List<String> clues = clues(state, viewerId, witnessed);
-        List<WheresTheBoneCoAwakeRecord> coAwake = inGame
+        List<String> clues = hidePrivateNightHistory ? List.of() : clues(state, viewerId, witnessed);
+        List<WheresTheBoneCoAwakeRecord> coAwake = inGame && !hidePrivateNightHistory
                 ? state.getCoAwakeRecords().getOrDefault(viewerId, Map.of()).entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(entry -> new WheresTheBoneCoAwakeRecord(entry.getKey(), List.copyOf(entry.getValue())))
@@ -96,8 +101,9 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
         String faction = winnerFaction(state);
         boolean knowsTheftIdentity = state.isFinished() || viewerRole == WheresTheBoneRole.BONE_THIEF
                 || witnessed || knownThief != null;
-        String boneBy = visibleBone && knowsTheftIdentity ? state.getBoneTakenBy() : null;
-        Integer boneHour = visibleBone && (state.isFinished() || knowsTheftIdentity)
+        String boneBy = !hidePrivateNightHistory && visibleBone && knowsTheftIdentity
+                ? state.getBoneTakenBy() : null;
+        Integer boneHour = !hidePrivateNightHistory && visibleBone && (state.isFinished() || knowsTheftIdentity)
                 ? state.getBoneTakenHour() : null;
         int hour = WheresTheBonePhase.NIGHT_HOUR.name().equals(phase) ? state.getCurrentHour() : 0;
         boolean discussionSkipPending = state.getPhase() == WheresTheBonePhase.DISCUSSION
@@ -131,17 +137,21 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
                 currentAwake,
                 players,
                 inGame && viewerRole != null ? viewerRole.name() : null,
-                inGame ? state.diceFor(viewerId) : List.of(),
-                inGame ? state.wakeFor(viewerId) : List.of(),
-                inGame && state.getPlayerIds().size() == 4 && state.hasSelectedWake(viewerId)
+                inGame && !hidePrivateNightHistory ? state.diceFor(viewerId) : List.of(),
+                inGame && !hidePrivateNightHistory ? state.wakeFor(viewerId) : List.of(),
+                inGame && !hidePrivateNightHistory
+                        && state.getPlayerIds().size() == 4 && state.hasSelectedWake(viewerId)
                         ? state.wakeFor(viewerId) : List.of(),
                 peekResults,
                 viewerPeeks.size(),
                 clues,
                 coAwake,
-                inGame ? state.getWitnessedBoneTakenHours().getOrDefault(viewerId, List.of()) : List.of(),
-                inGame ? state.getObservedBonePresentHours().getOrDefault(viewerId, List.of()) : List.of(),
-                inGame ? state.getObservedBoneMissingHours().getOrDefault(viewerId, List.of()) : List.of(),
+                inGame && !hidePrivateNightHistory
+                        ? state.getWitnessedBoneTakenHours().getOrDefault(viewerId, List.of()) : List.of(),
+                inGame && !hidePrivateNightHistory
+                        ? state.getObservedBonePresentHours().getOrDefault(viewerId, List.of()) : List.of(),
+                inGame && !hidePrivateNightHistory
+                        ? state.getObservedBoneMissingHours().getOrDefault(viewerId, List.of()) : List.of(),
                 knownPackmates,
                 knownThief,
                 inGame && viewerRole == WheresTheBoneRole.WHITE_DOG && state.getPackmates().contains(viewerId),
@@ -169,11 +179,13 @@ public class WheresTheBoneGameProjector implements GameStateProjector<WheresTheB
             String viewerId,
             Set<String> visibleAwake,
             boolean revealAll,
-            boolean showVotes
+            boolean showVotes,
+            boolean hidePrivateNightHistory
     ) {
         WheresTheBoneRole role = state.getRoles().get(playerId);
         boolean revealRole = revealAll || playerId.equals(viewerId);
-        List<Integer> wake = revealAll || playerId.equals(viewerId) ? state.wakeFor(playerId) : List.of();
+        List<Integer> wake = !hidePrivateNightHistory && (revealAll || playerId.equals(viewerId))
+                ? state.wakeFor(playerId) : List.of();
         GameEloChange elo = state.getEloChanges().get(playerId);
         return new WheresTheBonePlayerView(
                 playerId,

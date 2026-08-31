@@ -9,6 +9,7 @@ import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.core.GameRegistry;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.game.wheresthebone.domain.WheresTheBoneGameState;
 import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
@@ -23,6 +24,7 @@ import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.ranking.application.EloRatingService;
 import com.partygameonline.room.domain.GameRoom;
+import com.partygameonline.room.domain.PlayerLobbyState;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.time.Instant;
 import java.time.Duration;
@@ -97,6 +99,7 @@ public class MatchHistoryService {
             if (!session.isFinished() || session.getPersistedMatchId() != null) {
                 return;
             }
+            recordDisconnectedNotInMyPotForfeits(room, session);
             Instant finishedAt = session.getFinishedAt() == null ? Instant.now() : session.getFinishedAt();
             MatchEntity match = matchJpaRepository.save(MatchEntity.completed(
                     session.getGameId(),
@@ -135,13 +138,14 @@ public class MatchHistoryService {
     }
 
     /**
-     * Records an explicit leave from a running game immediately as one loss.
+     * Records a leave or expired disconnect from a running game immediately as one loss.
      * The live session continues for the remaining players; the forfeiting
      * player is excluded from the eventual completed-match ELO settlement.
      */
     @Transactional
     public void recordForfeit(GameRoom room, GameSession session, String playerId, String displayName) {
-        if (room == null || session == null || session.isFinished()
+        if (room == null || session == null
+                || (session.isFinished() && !NotInMyPotGameManifest.ID.equals(session.getGameId()))
                 || WheresTheBoneGameManifest.ID.equals(session.getGameId())
                 || playerId == null || !session.getConfig().playerIds().contains(playerId)
                 || session.isForfeited(playerId)) {
@@ -173,7 +177,13 @@ public class MatchHistoryService {
                     statistics.bloodline()
             ));
             if (eloRatingService != null) {
-                eloRatingService.applyForfeit(session.getGameId(), playerId);
+                EloRatingService.EloMatchResult result = eloRatingService.applyForfeit(
+                        session.getGameId(),
+                        playerId
+                );
+                if (NotInMyPotGameManifest.ID.equals(session.getGameId())) {
+                    recordEloChanges(session, result);
+                }
             }
             match.markEloProcessed();
             matchJpaRepository.save(match);
@@ -201,6 +211,7 @@ public class MatchHistoryService {
                 : session.getConfig().playerIds().stream()
                         .filter(playerId -> !session.isForfeited(playerId))
                         .toList();
+        Set<String> eloWinners = effectiveEloWinners(session, playerIds, winners);
         if (wheresTheBone && !validWheresTheBoneOutcome(match, session, winners, playerIds)) {
             match.markEloProcessed();
             matchJpaRepository.save(match);
@@ -209,22 +220,11 @@ public class MatchHistoryService {
         EloRatingService.EloMatchResult result = eloRatingService.completeMatch(
                 session.getGameId(),
                 playerIds,
-                winners,
+                eloWinners,
                 session.getState()
         );
         if (session.getState() instanceof GameEloChangeSink sink) {
-            Map<String, GameEloChange> changes = new LinkedHashMap<>();
-            result.changes().forEach((playerId, change) -> changes.put(
-                    playerId,
-                    new GameEloChange(
-                            change.playerId(),
-                            change.winner(),
-                            change.oldElo(),
-                            change.eloDelta(),
-                            change.newElo()
-                    )
-            ));
-            sink.recordEloChanges(changes);
+            sink.recordEloChanges(toGameEloChanges(result));
         }
         if (wheresTheBone) {
             int pool = result.changes().values().stream()
@@ -244,11 +244,66 @@ public class MatchHistoryService {
         matchJpaRepository.save(match);
     }
 
+    private static Set<String> effectiveEloWinners(
+            GameSession session,
+            List<String> eligiblePlayerIds,
+            Set<String> gameWinners
+    ) {
+        if (NotInMyPotGameManifest.ID.equals(session.getGameId())
+                && eligiblePlayerIds.size() == 1
+                && session.getConfig().playerIds().size() > 1) {
+            String survivorId = eligiblePlayerIds.getFirst();
+            boolean everyoneElseForfeited = session.getConfig().playerIds().stream()
+                    .filter(playerId -> !playerId.equals(survivorId))
+                    .allMatch(session::isForfeited);
+            if (everyoneElseForfeited) {
+                return Set.of(survivorId);
+            }
+        }
+        return gameWinners;
+    }
+
+    private static void recordEloChanges(GameSession session, EloRatingService.EloMatchResult result) {
+        if (session.getState() instanceof GameEloChangeSink sink) {
+            sink.recordEloChanges(toGameEloChanges(result));
+        }
+    }
+
+    private static Map<String, GameEloChange> toGameEloChanges(EloRatingService.EloMatchResult result) {
+        Map<String, GameEloChange> changes = new LinkedHashMap<>();
+        result.changes().forEach((playerId, change) -> changes.put(
+                playerId,
+                new GameEloChange(
+                        change.playerId(),
+                        change.winner(),
+                        change.oldElo(),
+                        change.eloDelta(),
+                        change.newElo()
+                )
+        ));
+        return changes;
+    }
+
     private static List<String> persistedParticipantIds(GameRoom room, GameSession session) {
         if (WheresTheBoneGameManifest.ID.equals(session.getGameId())) {
             return session.getConfig().playerIds();
         }
-        return room.getPlayers().stream().map(RoomPlayer::getPlayerId).toList();
+        return room.getPlayers().stream()
+                .map(RoomPlayer::getPlayerId)
+                .filter(playerId -> !NotInMyPotGameManifest.ID.equals(session.getGameId())
+                        || !session.isForfeited(playerId))
+                .toList();
+    }
+
+    private void recordDisconnectedNotInMyPotForfeits(GameRoom room, GameSession session) {
+        if (!NotInMyPotGameManifest.ID.equals(session.getGameId())) {
+            return;
+        }
+        for (RoomPlayer player : room.getPlayers()) {
+            if (player.getState() == PlayerLobbyState.DISCONNECTED) {
+                recordForfeit(room, session, player.getPlayerId(), player.getDisplayName());
+            }
+        }
     }
 
     private static boolean validWheresTheBoneOutcome(

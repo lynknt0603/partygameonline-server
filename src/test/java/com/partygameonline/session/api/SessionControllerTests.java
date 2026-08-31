@@ -37,6 +37,7 @@ class SessionControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.displayName").value("Linh"))
                 .andExpect(jsonPath("$.kind").value("GUEST"))
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"))
                 .andExpect(jsonPath("$.playerId").exists())
                 .andExpect(jsonPath("$.playerId").value(org.hamcrest.Matchers.not("spoofed-id")))
                 .andReturn();
