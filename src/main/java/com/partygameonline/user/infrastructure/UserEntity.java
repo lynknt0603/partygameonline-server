@@ -64,9 +64,13 @@ public class UserEntity {
     }
 
     public static UserEntity newMember(String username, String passwordAes) {
+        return newMember(username, passwordAes, username);
+    }
+
+    public static UserEntity newMember(String username, String passwordAes, String displayName) {
         Instant now = Instant.now();
         UUID id = UUID.randomUUID();
-        return new UserEntity(id, username, username, passwordAes, UUID.randomUUID().toString(), now, now);
+        return new UserEntity(id, displayName, username, passwordAes, UUID.randomUUID().toString(), now, now);
     }
 
     public void rename(String displayName) {

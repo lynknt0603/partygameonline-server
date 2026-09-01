@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -23,6 +25,14 @@ class RankingControllerTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private UserGameStatisticJpaRepository statisticRepository;
+
+    @BeforeEach
+    void setUp() {
+        statisticRepository.deleteAll();
+    }
+
     @Test
     void emptyRankingIsSafeForAPlayerWithoutCompletedMatches() throws Exception {
         MockHttpSession session = new MockHttpSession();
@@ -30,7 +40,7 @@ class RankingControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Ranking Guest\"}"))
+                        .content("{\"displayName\":\"RankGuest\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/rankings?sort=highestElo").session(session))
@@ -51,7 +61,7 @@ class RankingControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Pot Ranking Guest\"}"))
+                        .content("{\"displayName\":\"PotRank\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/rankings")

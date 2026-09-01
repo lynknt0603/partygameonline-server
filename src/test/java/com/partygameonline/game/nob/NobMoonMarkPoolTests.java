@@ -68,6 +68,25 @@ class NobMoonMarkPoolTests {
         assertThat(circulating(state)).isZero();
     }
 
+    @Test
+    void lowPoolReservesOneTieRewardForEveryLivingPlayerBeforeExtraChoices() {
+        NobGameState state = NobTestSupport.create(
+                12,
+                "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"
+        );
+        state.seedMoonMarks(4, 4, 3);
+        List<String> rewards = state.alivePlayers().stream().map(player -> player.getPlayerId()).toList();
+
+        state.beginRoundSummary(rewards, new SeededRandomSource(12));
+
+        assertThat(state.getMoonTokenOffers()).containsKeys(
+                "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"
+        );
+        assertThat(rewards).allMatch(state::hasUnclaimedMoonPick);
+        assertThat(state.getMoonTokenOffers().values()).allMatch(options -> !options.isEmpty());
+        assertThat(circulating(state)).isEqualTo(11);
+    }
+
     private static NobGameState summaryReady() {
         NobGameState state = NobTestSupport.fourPlayers(6);
         state.getDraftHands().clear();

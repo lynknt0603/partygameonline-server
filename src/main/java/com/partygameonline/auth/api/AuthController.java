@@ -2,6 +2,7 @@ package com.partygameonline.auth.api;
 
 import com.partygameonline.auth.api.dto.AuthRequest;
 import com.partygameonline.auth.api.dto.AuthResponse;
+import com.partygameonline.auth.api.dto.RegisterRequest;
 import com.partygameonline.auth.application.AuthService;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,9 +26,15 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody AuthRequest body,
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest body,
                                                  HttpServletRequest request, HttpServletResponse response) {
-        PlayerPrincipal principal = authService.register(body.username(), body.password(), request, response);
+        PlayerPrincipal principal = authService.register(
+                body.username(),
+                body.password(),
+                body.displayName(),
+                request,
+                response
+        );
         return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.from(principal));
     }
 

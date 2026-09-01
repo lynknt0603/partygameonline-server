@@ -211,10 +211,9 @@ public class ProfileStatsService {
                 playerId, WheresTheBoneGameManifest.ID
         );
         Map<UUID, MatchPlayerEntity> players = playerByMatch(matches, playerId);
-        FactionCounter thief = new FactionCounter();
-        FactionCounter yard = new FactionCounter();
         FactionCounter white = new FactionCounter();
-        FactionCounter packmate = new FactionCounter();
+        FactionCounter yardTeam = new FactionCounter();
+        FactionCounter boneThiefTeam = new FactionCounter();
         long wins = 0;
         for (MatchEntity match : matches) {
             MatchPlayerEntity player = players.get(match.getId());
@@ -222,10 +221,9 @@ public class ProfileStatsService {
             boolean won = isWin(match, player, playerId);
             if (won) wins++;
             FactionCounter counter = switch (player.getRole() == null ? "" : player.getRole().toUpperCase(Locale.ROOT)) {
-                case "BONE_THIEF" -> thief;
-                case "YARD_DOG" -> yard;
                 case "WHITE_DOG" -> white;
-                case "PACKMATE" -> packmate;
+                case "YARD_DOG" -> yardTeam;
+                case "BONE_THIEF", "PACKMATE" -> boneThiefTeam;
                 default -> null;
             };
             if (counter != null) counter.record(won);
@@ -236,7 +234,7 @@ public class ProfileStatsService {
         int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestEloForGame();
         return new ProfileStatsResponse.WheresTheBoneStats(
                 matches.size(), wins, rate(wins, matches.size()),
-                thief.toResponse(), yard.toResponse(), white.toResponse(), packmate.toResponse(), elo, highestElo
+                white.toResponse(), yardTeam.toResponse(), boneThiefTeam.toResponse(), elo, highestElo
         );
     }
 

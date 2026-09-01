@@ -498,7 +498,7 @@ class RoomControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"" + displayName + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         return new Guest(session, read(created, "$.playerId"));

@@ -28,14 +28,19 @@ public class AuthService {
     }
 
     @Transactional
-    public PlayerPrincipal register(String username, String password,
+    public PlayerPrincipal register(String username, String password, String displayName,
                                     HttpServletRequest request, HttpServletResponse response) {
         String normalized = normalize(username);
+        String normalizedDisplayName = displayName.trim();
         if (users.existsByUsername(normalized)) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
         }
         try {
-            UserEntity user = users.saveAndFlush(UserEntity.newMember(normalized, passwordCipher.encrypt(password)));
+            UserEntity user = users.saveAndFlush(UserEntity.newMember(
+                    normalized,
+                    passwordCipher.encrypt(password),
+                    normalizedDisplayName
+            ));
             return sessions.createMemberSession(
                     user.getUserKey(),
                     user.getDisplayName(),

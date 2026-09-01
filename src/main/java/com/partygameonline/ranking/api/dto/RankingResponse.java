@@ -44,7 +44,13 @@ public record RankingResponse(
             String favoriteBloodline,
             int bloodlineWins,
             String favoriteRole,
-            int roleWins
+            int roleWins,
+            int vegetarianMatches,
+            int vegetarianWins,
+            double vegetarianWinRate,
+            int meatEaterMatches,
+            int meatEaterWins,
+            double meatEaterWinRate
     ) {
         public RankingEntry(
                 int rank,
@@ -72,7 +78,13 @@ public record RankingResponse(
                     favoriteBloodline,
                     bloodlineWins,
                     null,
-                    0
+                    0,
+                    0,
+                    0,
+                    0.0,
+                    0,
+                    0,
+                    0.0
             );
         }
     }

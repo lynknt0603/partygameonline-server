@@ -177,7 +177,80 @@ class RankingServiceTests {
     }
 
     @Test
-    void wheresTheBoneRoleRankingCountsWinsForTheSelectedRole() {
+    void notInMyPotVegetarianRankingUsesFactionWinsThenWinRateAndReturnsRealRates() {
+        UserGameStatisticEntity frequentWinner = UserGameStatisticEntity.newStatistic(
+                "pot-frequent",
+                NotInMyPotGameManifest.ID
+        );
+        UserGameStatisticEntity perfectWinner = UserGameStatisticEntity.newStatistic(
+                "pot-perfect",
+                NotInMyPotGameManifest.ID
+        );
+        UserGameStatisticEntity meatOnly = UserGameStatisticEntity.newStatistic(
+                "pot-meat-only",
+                NotInMyPotGameManifest.ID
+        );
+        List<String> playerIds = List.of("pot-perfect", "pot-meat-only", "pot-frequent");
+        when(statisticRepository.findByGameCode(NotInMyPotGameManifest.ID))
+                .thenReturn(List.of(perfectWinner, meatOnly, frequentWinner));
+        when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(playerIds))
+                .thenReturn(List.of(
+                        player("pot-frequent", "Frequent", "WIN", "VEGETARIAN"),
+                        player("pot-perfect", "Perfect", "WIN", "VEGETARIAN"),
+                        player("pot-meat-only", "Carnivore", "WIN", "MEAT_EATER")
+                ));
+        when(matchPlayerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(
+                NotInMyPotGameManifest.ID,
+                playerIds
+        )).thenReturn(List.of(
+                player("pot-frequent", "Frequent", "WIN", "VEGETARIAN"),
+                player("pot-frequent", "Frequent", "WIN", "VEGETARIAN"),
+                player("pot-frequent", "Frequent", "WIN", "VEGETARIAN"),
+                player("pot-frequent", "Frequent", "LOSS", "VEGETARIAN"),
+                player("pot-perfect", "Perfect", "WIN", "VEGETARIAN"),
+                player("pot-perfect", "Perfect", "WIN", "VEGETARIAN"),
+                player("pot-meat-only", "Carnivore", "WIN", "MEAT_EATER")
+        ));
+
+        RankingResponse response = rankingService.getRanking(
+                NotInMyPotGameManifest.ID,
+                "vegetarianWins",
+                null,
+                0,
+                7,
+                null
+        );
+
+        assertThat(response.sort()).isEqualTo("vegetarianWins");
+        assertThat(response.totalPlayers()).isEqualTo(2);
+        assertThat(response.podium()).extracting(RankingResponse.RankingEntry::displayName)
+                .containsExactly("Frequent", "Perfect");
+        assertThat(response.podium().getFirst().vegetarianMatches()).isEqualTo(4);
+        assertThat(response.podium().getFirst().vegetarianWins()).isEqualTo(3);
+        assertThat(response.podium().getFirst().vegetarianWinRate()).isEqualTo(75.0);
+        assertThat(response.podium().get(1).vegetarianMatches()).isEqualTo(2);
+        assertThat(response.podium().get(1).vegetarianWins()).isEqualTo(2);
+        assertThat(response.podium().get(1).vegetarianWinRate()).isEqualTo(100.0);
+
+        RankingResponse meatEaters = rankingService.getRanking(
+                NotInMyPotGameManifest.ID,
+                "meatEaterWins",
+                null,
+                0,
+                7,
+                null
+        );
+        assertThat(meatEaters.sort()).isEqualTo("meatEaterWins");
+        assertThat(meatEaters.podium()).singleElement().satisfies(entry -> {
+            assertThat(entry.displayName()).isEqualTo("Carnivore");
+            assertThat(entry.meatEaterMatches()).isEqualTo(1);
+            assertThat(entry.meatEaterWins()).isEqualTo(1);
+            assertThat(entry.meatEaterWinRate()).isEqualTo(100.0);
+        });
+    }
+
+    @Test
+    void wheresTheBoneRankingCountsWinsForThreeRoleGroups() {
         UserGameStatisticEntity alpha = UserGameStatisticEntity.newStatistic(
                 "dog-alpha",
                 WheresTheBoneGameManifest.ID
@@ -190,14 +263,24 @@ class RankingServiceTests {
                 "dog-cursed",
                 WheresTheBoneGameManifest.ID
         );
-        List<String> playerIds = List.of("dog-alpha", "dog-beta", "dog-cursed");
+        UserGameStatisticEntity thief = UserGameStatisticEntity.newStatistic(
+                "dog-thief",
+                WheresTheBoneGameManifest.ID
+        );
+        UserGameStatisticEntity yard = UserGameStatisticEntity.newStatistic(
+                "dog-yard",
+                WheresTheBoneGameManifest.ID
+        );
+        List<String> playerIds = List.of("dog-alpha", "dog-beta", "dog-cursed", "dog-thief", "dog-yard");
         when(statisticRepository.findByGameCode(WheresTheBoneGameManifest.ID))
-                .thenReturn(List.of(alpha, beta, cursed));
+                .thenReturn(List.of(alpha, beta, cursed, thief, yard));
         when(matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(playerIds))
                 .thenReturn(List.of(
                         player("dog-alpha", "Alpha", "WIN", "WHITE_DOG"),
                         player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
-                        player("dog-cursed", "Cursed", "WIN", "PACKMATE")
+                        player("dog-cursed", "Cursed", "WIN", "PACKMATE"),
+                        player("dog-thief", "Thief", "WIN", "BONE_THIEF"),
+                        player("dog-yard", "Yard", "WIN", "YARD_DOG")
                 ));
         when(matchPlayerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(
                 WheresTheBoneGameManifest.ID,
@@ -207,7 +290,10 @@ class RankingServiceTests {
                 player("dog-alpha", "Alpha", "LOSS", "WHITE_DOG"),
                 player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
                 player("dog-beta", "Beta", "WIN", "WHITE_DOG"),
-                player("dog-cursed", "Cursed", "WIN", "PACKMATE")
+                player("dog-cursed", "Cursed", "WIN", "PACKMATE"),
+                player("dog-thief", "Thief", "WIN", "BONE_THIEF"),
+                player("dog-thief", "Thief", "WIN", "BONE_THIEF"),
+                player("dog-yard", "Yard", "WIN", "YARD_DOG")
         ));
 
         RankingResponse whiteDogs = rankingService.getRanking(
@@ -229,20 +315,39 @@ class RankingServiceTests {
         assertThat(whiteDogs.podium()).extracting(RankingResponse.RankingEntry::roleWins)
                 .containsExactly(2, 1);
 
-        RankingResponse cursedDogs = rankingService.getRanking(
+        RankingResponse yardTeam = rankingService.getRanking(
                 WheresTheBoneGameManifest.ID,
                 "roleWins",
                 null,
-                "PACKMATE",
+                "YARD_TEAM",
                 0,
                 7,
                 null
         );
-        assertThat(cursedDogs.podium()).singleElement().satisfies(entry -> {
-            assertThat(entry.displayName()).isEqualTo("Cursed");
-            assertThat(entry.favoriteRole()).isEqualTo("PACKMATE");
+        assertThat(yardTeam.role()).isEqualTo("YARD_TEAM");
+        assertThat(yardTeam.podium()).singleElement().satisfies(entry -> {
+            assertThat(entry.displayName()).isEqualTo("Yard");
+            assertThat(entry.favoriteRole()).isEqualTo("YARD_TEAM");
             assertThat(entry.roleWins()).isEqualTo(1);
         });
+
+        RankingResponse boneThiefTeam = rankingService.getRanking(
+                WheresTheBoneGameManifest.ID,
+                "roleWins",
+                null,
+                "BONE_THIEF_TEAM",
+                0,
+                7,
+                null
+        );
+        assertThat(boneThiefTeam.role()).isEqualTo("BONE_THIEF_TEAM");
+        assertThat(boneThiefTeam.totalPlayers()).isEqualTo(2);
+        assertThat(boneThiefTeam.podium()).extracting(RankingResponse.RankingEntry::displayName)
+                .containsExactly("Thief", "Cursed");
+        assertThat(boneThiefTeam.podium()).extracting(RankingResponse.RankingEntry::favoriteRole)
+                .containsOnly("BONE_THIEF_TEAM");
+        assertThat(boneThiefTeam.podium()).extracting(RankingResponse.RankingEntry::roleWins)
+                .containsExactly(2, 1);
     }
 
     private static UserGameStatisticEntity statistic(String playerId, int delta) {

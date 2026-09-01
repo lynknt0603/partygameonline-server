@@ -221,46 +221,45 @@ class EloRatingServiceTests {
     }
 
     @Test
-    void rankedRoundRewardsEveryPlacementAndStaysZeroSum() {
+    void nobRoundUsesRoundWinnerFlagsInsteadOfCumulativeScores() {
         mockDefaultRatings("A", "B", "C", "D");
 
         EloRatingService.EloMatchResult result = service.previewRound(
                 "night-of-bloodlines",
                 List.of(
-                        new EloRatingService.PlayerOutcome("A", true, 12),
-                        new EloRatingService.PlayerOutcome("B", false, 9),
-                        new EloRatingService.PlayerOutcome("C", false, 5),
-                        new EloRatingService.PlayerOutcome("D", false, 2)
+                        new EloRatingService.PlayerOutcome("A", true, 1),
+                        new EloRatingService.PlayerOutcome("B", false, 12),
+                        new EloRatingService.PlayerOutcome("C", false, 9),
+                        new EloRatingService.PlayerOutcome("D", false, 5)
                 ),
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(51);
-        assertThat(result.changes().get("B").eloDelta()).isEqualTo(17);
-        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-17);
-        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-51);
-        assertThat(result.changes().values().stream().mapToInt(EloRatingService.EloChange::eloDelta).sum()).isZero();
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-50);
     }
 
     @Test
-    void tiedPlacementsReceiveTheSameDelta() {
+    void nobRoundDoesNotUseTiedCumulativePlacements() {
         mockDefaultRatings("A", "B", "C", "D");
 
         EloRatingService.EloMatchResult result = service.previewRound(
                 "night-of-bloodlines",
                 List.of(
-                        new EloRatingService.PlayerOutcome("A", true, 12),
-                        new EloRatingService.PlayerOutcome("B", false, 8),
+                        new EloRatingService.PlayerOutcome("A", true, 1),
+                        new EloRatingService.PlayerOutcome("B", false, 12),
                         new EloRatingService.PlayerOutcome("C", false, 8),
                         new EloRatingService.PlayerOutcome("D", false, 3)
                 ),
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(51);
-        assertThat(result.changes().get("B").eloDelta()).isZero();
-        assertThat(result.changes().get("C").eloDelta()).isZero();
-        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-51);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-50);
     }
 
     @Test
@@ -283,7 +282,7 @@ class EloRatingServiceTests {
     }
 
     @Test
-    void rankedRoundCannotCreateEloWhenLastPlaceHasNoEloToLose() {
+    void nobRoundRespectsRatingFloorForLoser() {
         when(repository.findByUserIdAndGameCode("A", "night-of-bloodlines"))
                 .thenReturn(Optional.of(UserGameStatisticEntity.newStatistic("A", "night-of-bloodlines")));
         UserGameStatisticEntity empty = UserGameStatisticEntity.newStatistic("B", "night-of-bloodlines");
@@ -299,7 +298,7 @@ class EloRatingServiceTests {
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isZero();
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(20);
         assertThat(result.changes().get("B").eloDelta()).isZero();
     }
 

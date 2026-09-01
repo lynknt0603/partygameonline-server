@@ -40,7 +40,7 @@ class NotInMyPotGameEngineTests {
     @Test
     void createsTheConfiguredDeckAndRoleDistributionForEveryPlayerCount() {
         for (int playerCount = 3; playerCount <= 8; playerCount++) {
-            NotInMyPotGameState state = newGame(playerCount);
+            NotInMyPotGameState state = newPreparingGame(playerCount);
             NotInMyPotRules.RoleDistribution distribution = NotInMyPotRules.roleDistribution(playerCount);
             int deckSize = NotInMyPotRules.buildDeck(playerCount).size();
 
@@ -56,14 +56,51 @@ class NotInMyPotGameEngineTests {
             assertThat(state.getDrawPile()).hasSize(deckSize - (playerCount * NotInMyPotGameState.HAND_SIZE));
             assertThat(state.getPot()).isEmpty();
             assertThat(state.getDiscardPile()).isEmpty();
-            assertThat(state.getPhase()).isEqualTo(NotInMyPotPhase.PLAYING);
-            assertThat(state.getCurrentPlayerId()).isNotBlank();
+            assertThat(state.getPhase()).isEqualTo(NotInMyPotPhase.ROLE_REVEAL);
+            assertThat(state.getCurrentPlayerId()).isNull();
+            assertThat(state.getTurnDeadline()).isAfter(Instant.now());
             assertThat(state.getPublicRoles()).isEmpty();
             assertThat(state.getPlayers().stream()
                     .flatMap(player -> player.getHand().stream())
                     .count() + state.getDrawPile().size())
                     .isEqualTo(deckSize);
         }
+    }
+
+    @Test
+    void startsTheFirstTurnOnlyAfterTheFifteenSecondRoleRevealExpires() {
+        NotInMyPotGameState state = newPreparingGame(4);
+        NotInMyPotPlayerState timeoutActor = state.activePlayers().getFirst();
+
+        assertThat(state.getPhase()).isEqualTo(NotInMyPotPhase.ROLE_REVEAL);
+        assertThat(state.getCurrentPlayerId()).isNull();
+        assertThat(state.getPublicEvents())
+                .extracting(event -> event.type())
+                .doesNotContain("TURN_STARTED");
+        assertThat(projector.project(state, player(timeoutActor)).canAct()).isFalse();
+
+        state.setTurnDeadline(Instant.now().minusSeconds(1));
+        NotInMyPotAction timeout = new NotInMyPotAction(
+                NotInMyPotAction.TIMEOUT,
+                "role-reveal-timeout",
+                state.getStateVersion(),
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+
+        assertThat(engine.validate(state, player(timeoutActor), timeout).valid()).isTrue();
+        engine.apply(state, player(timeoutActor), timeout, new SeededRandomSource(17L));
+
+        assertThat(state.getPhase()).isEqualTo(NotInMyPotPhase.PLAYING);
+        assertThat(state.getCurrentPlayerId()).isNotBlank();
+        assertThat(state.getTurnNumber()).isEqualTo(1);
+        assertThat(state.getTurnDeadline()).isAfter(Instant.now());
+        assertThat(state.getPublicEvents())
+                .extracting(event -> event.type())
+                .contains("TURN_STARTED");
     }
 
     @Test
@@ -81,6 +118,7 @@ class NotInMyPotGameEngineTests {
                 new GameConfig(NotInMyPotGameManifest.ID, "ROOM", playerIds, displayNames, 7L, roomSettings),
                 new SeededRandomSource(7L)
         );
+        finishPreparation(state, new SeededRandomSource(8L));
 
         assertThat(state.getSettings()).isEqualTo(new NotInMyPotSettings(45, false));
         assertThat(state.getTurnDeadline()).isAfter(Instant.now());
@@ -155,8 +193,9 @@ class NotInMyPotGameEngineTests {
                 selected,
                 ingredient("timeout-ingredient-last-" + type, NotInMyPotIngredientType.SALT));
         ensureDrawPile(state, 10);
+        selectPreferredCard(state, actor, selected.cardId(), "prefer-ingredient-" + type);
 
-        applyExpiredTurn(state, actor, new FixedRandomSource(1), "timeout-ingredient-command-" + type);
+        applyExpiredTurn(state, actor, new FixedRandomSource(0), "timeout-ingredient-command-" + type);
 
         assertThat(state.getPot().getFirst()).isEqualTo(selected);
         assertThat(state.getPublicEvents()).anyMatch(event -> "INGREDIENT_DECLARED".equals(event.type()));
@@ -174,8 +213,9 @@ class NotInMyPotGameEngineTests {
         state.getPot().addFirst(ingredient("timeout-pot-bottom-" + type, NotInMyPotIngredientType.MEAT));
         state.getPot().addFirst(ingredient("timeout-pot-top-" + type, NotInMyPotIngredientType.VEGETABLE));
         ensureDrawPile(state, 20);
+        selectPreferredCard(state, actor, selected.cardId(), "prefer-action-" + type);
 
-        applyExpiredTurn(state, actor, new FixedRandomSource(1), "timeout-action-command-" + type);
+        applyExpiredTurn(state, actor, new FixedRandomSource(0), "timeout-action-command-" + type);
 
         assertThat(actor.getHand()).extracting(NotInMyPotCard::cardId).doesNotContain(selected.cardId());
         assertThat(state.getDiscardPile()).extracting(NotInMyPotCard::cardId).contains(selected.cardId());
@@ -196,6 +236,25 @@ class NotInMyPotGameEngineTests {
             case TRASH_OUT -> assertThat(state.getPublicEvents())
                     .anyMatch(event -> "TRASH_OUT_RESOLVED".equals(event.type()));
         }
+    }
+
+    @Test
+    void preferredCardCanBeChangedWithoutConsumingTheTurnOrMakingTheViewStale() {
+        NotInMyPotGameState state = newGame(3);
+        NotInMyPotPlayerState actor = currentPlayer(state);
+        NotInMyPotCard preferred = actor.getHand().get(1);
+        int versionBeforeSelection = state.getStateVersion();
+
+        selectPreferredCard(state, actor, preferred.cardId(), "prefer-card");
+
+        assertThat(state.getPreferredCardId()).isEqualTo(preferred.cardId());
+        assertThat(state.getStateVersion()).isEqualTo(versionBeforeSelection);
+        assertThat(state.getCurrentPlayerId()).isEqualTo(actor.getPlayerId());
+
+        selectPreferredCard(state, actor, null, "clear-preferred-card");
+
+        assertThat(state.getPreferredCardId()).isNull();
+        assertThat(state.getStateVersion()).isEqualTo(versionBeforeSelection);
     }
 
     @Test
@@ -783,6 +842,12 @@ class NotInMyPotGameEngineTests {
     }
 
     private NotInMyPotGameState newGame(int playerCount) {
+        NotInMyPotGameState state = newPreparingGame(playerCount);
+        finishPreparation(state, new SeededRandomSource(200L + playerCount));
+        return state;
+    }
+
+    private NotInMyPotGameState newPreparingGame(int playerCount) {
         Map<String, String> names = new HashMap<>();
         List<String> playerIds = new ArrayList<>();
         for (int index = 0; index < playerCount; index++) {
@@ -794,6 +859,43 @@ class NotInMyPotGameEngineTests {
                 new GameConfig(NotInMyPotGameManifest.ID, "ROOM", playerIds, names, 1L),
                 new SeededRandomSource(100L + playerCount)
         );
+    }
+
+    private void finishPreparation(NotInMyPotGameState state, RandomSource random) {
+        NotInMyPotPlayerState timeoutActor = state.activePlayers().getFirst();
+        state.setTurnDeadline(Instant.now().minusSeconds(1));
+        NotInMyPotAction timeout = new NotInMyPotAction(
+                NotInMyPotAction.TIMEOUT,
+                "finish-preparation-" + state.getRoomId() + "-" + state.getStateVersion(),
+                state.getStateVersion(),
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+        assertThat(engine.validate(state, player(timeoutActor), timeout).valid()).isTrue();
+        engine.apply(state, player(timeoutActor), timeout, random);
+    }
+
+    private void selectPreferredCard(
+            NotInMyPotGameState state,
+            NotInMyPotPlayerState actor,
+            String cardId,
+            String commandId
+    ) {
+        NotInMyPotAction preference = new NotInMyPotAction(
+                NotInMyPotAction.SET_PREFERRED_CARD,
+                commandId,
+                state.getStateVersion(),
+                cardId,
+                null,
+                null,
+                null,
+                List.of()
+        );
+        assertThat(engine.validate(state, player(actor), preference).valid()).isTrue();
+        engine.apply(state, player(actor), preference, new SeededRandomSource(91L));
     }
 
     private static NotInMyPotPlayerState currentPlayer(NotInMyPotGameState state) {

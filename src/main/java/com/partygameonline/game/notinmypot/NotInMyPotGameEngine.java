@@ -16,6 +16,7 @@ import com.partygameonline.game.notinmypot.domain.NotInMyPotCard;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotEvent;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotPlayerState;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotPhase;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotRole;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotSettings;
 import java.util.ArrayList;
@@ -65,19 +66,14 @@ public class NotInMyPotGameEngine
                 player.getHand().add(state.getDrawPile().removeFirst());
             }
         }
-        state.setPhase(com.partygameonline.game.notinmypot.domain.NotInMyPotPhase.PLAYING);
-        state.setCurrentPlayerId(
-                state.getPlayers().get(random.nextInt(state.getPlayers().size())).getPlayerId()
-        );
-        state.setTurnDeadline(Instant.now().plusSeconds(state.getSettings().turnSeconds()));
+        state.setPhase(NotInMyPotPhase.ROLE_REVEAL);
+        state.setCurrentPlayerId(null);
+        state.setTurnDeadline(Instant.now().plusSeconds(NotInMyPotGameState.ROLE_REVEAL_SECONDS));
         state.addPublicEvent(NotInMyPotEvent.of("NOT_IN_MY_POT_GAME_STARTED", Map.of(
                 "playerCount", playerCount,
                 "targetScore", NotInMyPotRules.targetScore(playerCount),
-                "drawPileCount", state.getDrawPile().size()
-        )));
-        state.addPublicEvent(NotInMyPotEvent.of("TURN_STARTED", Map.of(
-                "playerId", state.getCurrentPlayerId(),
-                "turnNumber", state.getTurnNumber()
+                "drawPileCount", state.getDrawPile().size(),
+                "roleRevealSeconds", NotInMyPotGameState.ROLE_REVEAL_SECONDS
         )));
         return state;
     }
