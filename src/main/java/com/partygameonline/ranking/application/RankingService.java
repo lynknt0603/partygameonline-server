@@ -53,6 +53,25 @@ public class RankingService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isTopOne(String playerId) {
+        if (playerId == null || playerId.isBlank()) {
+            return false;
+        }
+        Map<String, List<UserGameStatisticEntity>> byGame = statisticRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.groupingBy(UserGameStatisticEntity::getGameCode));
+        return byGame.values().stream().anyMatch(statistics -> {
+            int bestElo = statistics.stream()
+                    .mapToInt(UserGameStatisticEntity::getHighestEloForGame)
+                    .max().orElse(Integer.MIN_VALUE);
+            int bestWins = statistics.stream()
+                    .mapToInt(UserGameStatisticEntity::getTotalWin)
+                    .max().orElse(Integer.MIN_VALUE);
+            return statistics.stream().anyMatch(statistic -> playerId.equals(statistic.getUserId())
+                    && (statistic.getHighestEloForGame() == bestElo || statistic.getTotalWin() == bestWins));
+        });
+    }
+
+    @Transactional(readOnly = true)
     public RankingResponse getRanking(
             String gameId,
             String sort,

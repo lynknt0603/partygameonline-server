@@ -15,6 +15,7 @@ import com.partygameonline.game.wheresthebone.domain.WheresTheBoneGameState;
 import com.partygameonline.history.api.dto.MatchHistoryItemResponse;
 import com.partygameonline.history.api.dto.MatchHistoryPlayerResponse;
 import com.partygameonline.game.runtime.GameSession;
+import com.partygameonline.profile.application.PlayerProgressService;
 import com.partygameonline.history.api.dto.MatchPlayerResponse;
 import com.partygameonline.history.api.dto.MatchResponse;
 import com.partygameonline.history.api.dto.PageResponse;
@@ -57,6 +58,7 @@ public class MatchHistoryService {
     private final GameRegistry gameRegistry;
     private final NobGameRoundJpaRepository nobGameRoundJpaRepository;
     private final EloRatingService eloRatingService;
+    private final PlayerProgressService playerProgressService;
 
     @Autowired
     public MatchHistoryService(
@@ -64,13 +66,15 @@ public class MatchHistoryService {
             MatchPlayerJpaRepository matchPlayerJpaRepository,
             GameRegistry gameRegistry,
             NobGameRoundJpaRepository nobGameRoundJpaRepository,
-            EloRatingService eloRatingService
+            EloRatingService eloRatingService,
+            PlayerProgressService playerProgressService
     ) {
         this.matchJpaRepository = matchJpaRepository;
         this.matchPlayerJpaRepository = matchPlayerJpaRepository;
         this.gameRegistry = gameRegistry;
         this.nobGameRoundJpaRepository = nobGameRoundJpaRepository;
         this.eloRatingService = eloRatingService;
+        this.playerProgressService = playerProgressService;
     }
 
     public MatchHistoryService(
@@ -78,7 +82,7 @@ public class MatchHistoryService {
             MatchPlayerJpaRepository matchPlayerJpaRepository,
             GameRegistry gameRegistry
     ) {
-        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, null, null);
+        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, null, null, null);
     }
 
     public MatchHistoryService(
@@ -87,7 +91,18 @@ public class MatchHistoryService {
             GameRegistry gameRegistry,
             NobGameRoundJpaRepository nobGameRoundJpaRepository
     ) {
-        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, nobGameRoundJpaRepository, null);
+        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry, nobGameRoundJpaRepository, null, null);
+    }
+
+    public MatchHistoryService(
+            MatchJpaRepository matchJpaRepository,
+            MatchPlayerJpaRepository matchPlayerJpaRepository,
+            GameRegistry gameRegistry,
+            NobGameRoundJpaRepository nobGameRoundJpaRepository,
+            EloRatingService eloRatingService
+    ) {
+        this(matchJpaRepository, matchPlayerJpaRepository, gameRegistry,
+                nobGameRoundJpaRepository, eloRatingService, null);
     }
 
     @Transactional
@@ -133,6 +148,9 @@ public class MatchHistoryService {
             }
             persistNobRounds(match.getId(), session);
             applyElo(match, session, winners);
+            if (playerProgressService != null) {
+                playerProgressService.recordFinishedGame(session.getState(), winners, participantIds);
+            }
             session.markPersisted(match.getId());
         }
     }

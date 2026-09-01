@@ -116,7 +116,7 @@ public final class NotInMyPotRulesEngine {
             case NotInMyPotAction.SELECT_TARGET -> applySelectedTarget(state, actorId, action, random, events);
             case NotInMyPotAction.ACKNOWLEDGE_SLOTTED_SPOON -> acknowledgeSlottedSpoon(state, actorId, events);
             case NotInMyPotAction.RETURN_SHOPPING_CARDS -> applyShoppingReturn(state, actorId, action, events);
-            case NotInMyPotAction.DECLARE_POT_READY -> applyPotReady(state, events);
+            case NotInMyPotAction.DECLARE_POT_READY -> applyPotReady(state, actorId, events);
             case NotInMyPotAction.TIMEOUT -> applyTimeout(state, random, events);
             default -> {
                 // Validation is authoritative. This branch is only defensive
@@ -346,6 +346,7 @@ public final class NotInMyPotRulesEngine {
         NotInMyPotCard card = actor.findHand(action.cardId());
         actor.getHand().remove(card);
         state.getPot().addFirst(card);
+        state.recordIngredientPlayed(actorId, card.ingredientType());
         state.setTurnHasActed(true);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", actorId);
@@ -636,9 +637,11 @@ public final class NotInMyPotRulesEngine {
 
     private static void applyPotReady(
             NotInMyPotGameState state,
+            String actorId,
             List<NotInMyPotEvent> events
     ) {
         state.setTurnHasActed(true);
+        state.recordPotReveal(actorId);
         int score = state.scorePot();
         NotInMyPotRole winner = score >= NotInMyPotRules.targetScore(state.getPlayers().size())
                 ? NotInMyPotRole.VEGETARIAN

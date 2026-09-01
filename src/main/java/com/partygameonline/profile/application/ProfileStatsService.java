@@ -10,6 +10,7 @@ import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.common.error.ApiException;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.profile.domain.AchievementDefinition;
 import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
@@ -42,6 +43,7 @@ public class ProfileStatsService {
     private final NobGameRoundJpaRepository roundRepository;
     private final UserGameStatisticJpaRepository statisticRepository;
     private final UserJpaRepository userRepository;
+    private final PlayerProgressService playerProgressService;
 
     @Autowired
     public ProfileStatsService(
@@ -49,20 +51,22 @@ public class ProfileStatsService {
             MatchPlayerJpaRepository playerRepository,
             NobGameRoundJpaRepository roundRepository,
             UserGameStatisticJpaRepository statisticRepository,
-            UserJpaRepository userRepository
+            UserJpaRepository userRepository,
+            PlayerProgressService playerProgressService
     ) {
         this.matchRepository = matchRepository;
         this.playerRepository = playerRepository;
         this.roundRepository = roundRepository;
         this.statisticRepository = statisticRepository;
         this.userRepository = userRepository;
+        this.playerProgressService = playerProgressService;
     }
 
     public ProfileStatsService(
             MatchJpaRepository matchRepository,
             MatchPlayerJpaRepository playerRepository
     ) {
-        this(matchRepository, playerRepository, null, null, null);
+        this(matchRepository, playerRepository, null, null, null, null);
     }
 
     public ProfileStatsService(
@@ -70,10 +74,10 @@ public class ProfileStatsService {
             MatchPlayerJpaRepository playerRepository,
             NobGameRoundJpaRepository roundRepository
     ) {
-        this(matchRepository, playerRepository, roundRepository, null, null);
+        this(matchRepository, playerRepository, roundRepository, null, null, null);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ProfileStatsResponse getStats(PlayerPrincipal principal) {
         String username = principal.kind() == SessionKind.MEMBER
                 ? usernameForPlayerId(principal.playerId())
@@ -87,7 +91,7 @@ public class ProfileStatsService {
         );
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ProfileStatsResponse getStatsByUsername(String username) {
         if (userRepository == null) {
             throw new ApiException("PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found");
@@ -182,6 +186,48 @@ public class ProfileStatsService {
         int elo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getEloNob();
         int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestElo();
         ProfileStatsResponse.WheresTheBoneStats boneStats = boneStats(playerId);
+        UserEntity member = userRepository == null ? null : userRepository.findByUserKey(playerId).orElse(null);
+        PlayerProgressService.MemberProgress memberProgress = member == null || playerProgressService == null
+                ? null
+                : playerProgressService.memberProgress(member);
+        List<ProfileStatsResponse.Achievement> achievementStats = java.util.Arrays.stream(
+                        AchievementDefinition.values()
+                )
+                .map(definition -> {
+                    PlayerProgressService.AchievementProgress progress = memberProgress == null
+                            ? null
+                            : memberProgress.achievements().stream()
+                                    .filter(item -> item.definition() == definition)
+                                    .findFirst()
+                                    .orElse(null);
+                    return new ProfileStatsResponse.Achievement(
+                            definition.name(),
+                            progress == null ? 0 : progress.progress(),
+                            definition.target(),
+                            progress != null && progress.unlocked(),
+                            progress == null || progress.unlockedAt() == null
+                                    ? null : progress.unlockedAt().toString(),
+                            definition.avatarKeys().stream().map(AvatarCatalog::url).toList()
+                    );
+                })
+                .toList();
+        String selectedAvatar = member == null ? AvatarCatalog.DEFAULT_KEY : member.getAvatarKey();
+        Map<String, String> avatarSources = memberProgress == null ? Map.of() : memberProgress.avatarSources();
+        List<ProfileStatsResponse.Avatar> avatarStats = AvatarCatalog.allKeys().stream()
+                .sorted()
+                .map(key -> new ProfileStatsResponse.Avatar(
+                        key,
+                        AvatarCatalog.url(key),
+                        AvatarCatalog.freeKeys().contains(key) || avatarSources.containsKey(key),
+                        key.equals(selectedAvatar),
+                        avatarSources.getOrDefault(key, AvatarCatalog.freeKeys().contains(key) ? "FREE" : "LOCKED"),
+                        java.util.Arrays.stream(AchievementDefinition.values())
+                                .filter(definition -> definition.avatarKeys().contains(key))
+                                .map(Enum::name)
+                                .findFirst()
+                                .orElse(null)
+                ))
+                .toList();
         return new ProfileStatsResponse(
                 new ProfileStatsResponse.Player(
                         playerId,
@@ -202,7 +248,9 @@ public class ProfileStatsService {
                         elo,
                         highestElo
                 ),
-                boneStats
+                boneStats,
+                achievementStats,
+                avatarStats
         );
     }
 

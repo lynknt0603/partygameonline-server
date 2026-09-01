@@ -1,14 +1,22 @@
 package com.partygameonline.profile.api.dto;
 
+import java.util.List;
+
 public record ProfileStatsResponse(
         Player player,
         NobStats nobStats,
-        WheresTheBoneStats wheresTheBoneStats
+        WheresTheBoneStats wheresTheBoneStats,
+        List<Achievement> achievements,
+        List<Avatar> avatars
 ) {
 
     /** Keeps the pre-Where's-the-Bone constructor source-compatible for callers that only expose NOB. */
     public ProfileStatsResponse(Player player, NobStats nobStats) {
-        this(player, nobStats, WheresTheBoneStats.empty());
+        this(player, nobStats, WheresTheBoneStats.empty(), List.of(), List.of());
+    }
+
+    public ProfileStatsResponse(Player player, NobStats nobStats, WheresTheBoneStats wheresTheBoneStats) {
+        this(player, nobStats, wheresTheBoneStats, List.of(), List.of());
     }
 
     public record Player(
@@ -39,6 +47,26 @@ public record ProfileStatsResponse(
             long matchesPlayed,
             long matchesWon,
             double winRate
+    ) {
+    }
+
+    public record Achievement(
+            String code,
+            int progress,
+            int target,
+            boolean unlocked,
+            String unlockedAt,
+            List<String> rewardAvatarUrls
+    ) {
+    }
+
+    public record Avatar(
+            String key,
+            String url,
+            boolean unlocked,
+            boolean selected,
+            String source,
+            String achievementCode
     ) {
     }
 
