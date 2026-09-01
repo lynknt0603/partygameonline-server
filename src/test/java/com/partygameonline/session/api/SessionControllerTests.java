@@ -26,6 +26,53 @@ class SessionControllerTests {
     private MockMvc mockMvc;
 
     @Test
+    void registrationUsesDisplayNameAndLoginKeepsIt() throws Exception {
+        String username = "register" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        MockHttpSession registrationSession = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(registrationSession)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username
+                                + "\",\"password\":\"Secret123!\",\"displayName\":\"Linh Test1\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.displayName").value("Linh Test1"))
+                .andExpect(jsonPath("$.kind").value("MEMBER"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .session(new MockHttpSession())
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Linh Test1"))
+                .andExpect(jsonPath("$.kind").value("MEMBER"));
+    }
+
+    @Test
+    void registrationRequiresDisplayNameWithAtMostTenCharacters() throws Exception {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"missing" + suffix + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("displayName"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"toolong" + suffix
+                                + "\",\"password\":\"Secret123!\",\"displayName\":\"12345678901\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("displayName"));
+    }
+
+    @Test
     void guestSessionRoundTripKeepsServerGeneratedPlayerId() throws Exception {
         MockHttpSession session = new MockHttpSession();
 
@@ -37,6 +84,7 @@ class SessionControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.displayName").value("Linh"))
                 .andExpect(jsonPath("$.kind").value("GUEST"))
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"))
                 .andExpect(jsonPath("$.playerId").exists())
                 .andExpect(jsonPath("$.playerId").value(org.hamcrest.Matchers.not("spoofed-id")))
                 .andReturn();
@@ -56,10 +104,10 @@ class SessionControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Linh Nguyen\"}"))
+                        .content("{\"displayName\":\"LinhNguyen\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.playerId").value(playerId))
-                .andExpect(jsonPath("$.displayName").value("Linh Nguyen"));
+                .andExpect(jsonPath("$.displayName").value("LinhNguyen"));
     }
 
     @Test
@@ -71,23 +119,24 @@ class SessionControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Member\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.kind").value("MEMBER"));
+                .andExpect(jsonPath("$.kind").value("MEMBER"))
+                .andExpect(jsonPath("$.displayName").value("Member"));
 
         mockMvc.perform(post("/api/v1/session/guest")
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Should Not Downgrade\"}"))
+                        .content("{\"displayName\":\"NoChange\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("MEMBER"))
-                .andExpect(jsonPath("$.displayName").value(username));
+                .andExpect(jsonPath("$.displayName").value("Member"));
 
         mockMvc.perform(get("/api/v1/session/me").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("MEMBER"))
-                .andExpect(jsonPath("$.displayName").value(username));
+                .andExpect(jsonPath("$.displayName").value("Member"));
     }
 
     @Test

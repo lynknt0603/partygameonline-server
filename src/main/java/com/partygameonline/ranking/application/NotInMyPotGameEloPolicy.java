@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 @Component
 public final class NotInMyPotGameEloPolicy implements GameEloPolicy {
 
+    public static final int FORFEIT_PENALTY = 100;
+
     @Override
     public String gameCode() {
         return NotInMyPotGameManifest.ID;
@@ -47,6 +49,9 @@ public final class NotInMyPotGameEloPolicy implements GameEloPolicy {
         if (winners.isEmpty()) {
             return allForfeited(outcomes, ratings);
         }
+        if (losers.isEmpty()) {
+            return winnersOnly(winners, ratings);
+        }
         List<NotInMyPotEloCalculator.EloChange> calculated =
                 NotInMyPotEloCalculator.calculateEloChanges(winners, losers);
         Map<String, EloRatingService.EloChange> changes = new LinkedHashMap<>();
@@ -61,7 +66,7 @@ public final class NotInMyPotGameEloPolicy implements GameEloPolicy {
 
     @Override
     public EloRatingService.EloMatchResult calculateForfeit(String playerId, int currentElo) {
-        int delta = -NotInMyPotEloCalculator.BASE_REWARD;
+        int delta = -FORFEIT_PENALTY;
         return new EloRatingService.EloMatchResult(Map.of(
                 playerId,
                 new EloRatingService.EloChange(playerId, false, currentElo, delta, currentElo + delta)
@@ -83,6 +88,21 @@ public final class NotInMyPotGameEloPolicy implements GameEloPolicy {
             int delta = -NotInMyPotEloCalculator.BASE_REWARD;
             changes.put(outcome.playerId(), new EloRatingService.EloChange(
                     outcome.playerId(), false, oldElo, delta, oldElo + delta
+            ));
+        }
+        double average = ratings.values().stream().mapToInt(Integer::intValue).average().orElse(5000);
+        return new EloRatingService.EloMatchResult(changes, average);
+    }
+
+    private static EloRatingService.EloMatchResult winnersOnly(
+            List<NotInMyPotEloCalculator.PlayerRating> winners,
+            Map<String, Integer> ratings
+    ) {
+        Map<String, EloRatingService.EloChange> changes = new LinkedHashMap<>();
+        for (NotInMyPotEloCalculator.PlayerRating winner : winners) {
+            int newElo = Math.addExact(winner.elo(), NotInMyPotEloCalculator.BASE_REWARD);
+            changes.put(winner.id(), new EloRatingService.EloChange(
+                    winner.id(), true, winner.elo(), NotInMyPotEloCalculator.BASE_REWARD, newElo
             ));
         }
         double average = ratings.values().stream().mapToInt(Integer::intValue).average().orElse(5000);

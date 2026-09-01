@@ -1,6 +1,7 @@
 package com.partygameonline.auth.application;
 
 import com.partygameonline.common.error.ApiException;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.session.application.SessionService;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.user.infrastructure.UserEntity;
@@ -27,16 +28,26 @@ public class AuthService {
     }
 
     @Transactional
-    public PlayerPrincipal register(String username, String password,
+    public PlayerPrincipal register(String username, String password, String displayName,
                                     HttpServletRequest request, HttpServletResponse response) {
         String normalized = normalize(username);
+        String normalizedDisplayName = displayName.trim();
         if (users.existsByUsername(normalized)) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
         }
         try {
-            UserEntity user = users.saveAndFlush(UserEntity.newMember(normalized, passwordCipher.encrypt(password)));
+            UserEntity user = users.saveAndFlush(UserEntity.newMember(
+                    normalized,
+                    passwordCipher.encrypt(password),
+                    normalizedDisplayName
+            ));
             return sessions.createMemberSession(
-                    user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), request, response
+                    user.getUserKey(),
+                    user.getDisplayName(),
+                    user.getCreatedAt(),
+                    AvatarCatalog.urlForKey(user.getAvatarKey()),
+                    request,
+                    response
             );
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
@@ -52,7 +63,12 @@ public class AuthService {
                         "INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "Username or password is incorrect"
                 ));
         return sessions.createMemberSession(
-                user.getUserKey(), user.getDisplayName(), user.getCreatedAt(), request, response
+                user.getUserKey(),
+                user.getDisplayName(),
+                user.getCreatedAt(),
+                AvatarCatalog.urlForKey(user.getAvatarKey()),
+                request,
+                response
         );
     }
 

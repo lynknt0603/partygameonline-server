@@ -27,6 +27,7 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     public static final int EMERGENCY_RETURN_COUNT = 2;
     public static final int TRASH_DRAW_COUNT = 3;
     public static final int NORMAL_DRAW_COUNT = 1;
+    public static final int ROLE_REVEAL_SECONDS = 15;
 
     private final String roomId;
     private final List<NotInMyPotPlayerState> players = new ArrayList<>();
@@ -53,6 +54,7 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     private NotInMyPotRole winnerFaction;
     private Integer finalPotScore;
     private NotInMyPotPendingAction pendingAction;
+    private String preferredCardId;
 
     public NotInMyPotGameState(String roomId) {
         this.roomId = roomId;
@@ -272,14 +274,24 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
         this.pendingAction = pendingAction;
     }
 
+    public String getPreferredCardId() {
+        return preferredCardId;
+    }
+
+    public void setPreferredCardId(String preferredCardId) {
+        this.preferredCardId = preferredCardId == null || preferredCardId.isBlank()
+                ? null
+                : preferredCardId;
+    }
+
     public boolean timeoutIsDue(Instant now) {
         Instant reference = now == null ? Instant.now() : now;
         if (pendingAction != null) {
             return pendingAction.expiresAt() != null
                     && !pendingAction.expiresAt().isAfter(reference);
         }
-        return phase == NotInMyPotPhase.PLAYING
-                && currentPlayerId != null
+        return (phase == NotInMyPotPhase.ROLE_REVEAL
+                || (phase == NotInMyPotPhase.PLAYING && currentPlayerId != null))
                 && turnDeadline != null
                 && !turnDeadline.isAfter(reference);
     }
@@ -337,7 +349,6 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
 
     @Override
     public void recordEloChanges(Map<String, GameEloChange> changes) {
-        eloChanges.clear();
         if (changes != null) {
             eloChanges.putAll(changes);
         }

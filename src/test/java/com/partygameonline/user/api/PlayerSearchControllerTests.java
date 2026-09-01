@@ -101,7 +101,7 @@ class PlayerSearchControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Search Viewer\"}"))
+                        .content("{\"displayName\":\"Searcher\"}"))
                 .andExpect(status().isCreated());
         return session;
     }

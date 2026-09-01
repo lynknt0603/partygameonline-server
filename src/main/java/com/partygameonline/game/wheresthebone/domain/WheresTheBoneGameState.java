@@ -18,6 +18,7 @@ public final class WheresTheBoneGameState implements GameOutcomeState, GameEloCh
     public static final int MIN_PLAYERS = 4;
     public static final int MAX_PLAYERS = 8;
     public static final int MAX_HOUR = 6;
+    public static final int ROLE_REVEAL_SECONDS = 15;
     public static final int DISCUSSION_SECONDS_PER_PLAYER = 60;
     public static final int VOTING_SECONDS = 60;
 

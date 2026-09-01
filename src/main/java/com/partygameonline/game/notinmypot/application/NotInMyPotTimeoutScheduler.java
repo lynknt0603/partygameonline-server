@@ -3,6 +3,7 @@ package com.partygameonline.game.notinmypot.application;
 import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotAction;
 import com.partygameonline.game.notinmypot.domain.NotInMyPotGameState;
+import com.partygameonline.game.notinmypot.domain.NotInMyPotPhase;
 import com.partygameonline.game.runtime.GameActionDispatcher;
 import com.partygameonline.game.runtime.GameSession;
 import com.partygameonline.game.runtime.GameSessionRepository;
@@ -44,9 +45,14 @@ public class NotInMyPotTimeoutScheduler {
                     || !state.timeoutIsDue(now)) {
                 continue;
             }
-            String actorId = state.getPendingAction() == null
-                    ? state.getCurrentPlayerId()
-                    : state.getPendingAction().actorPlayerId();
+            String actorId = state.getPhase() == NotInMyPotPhase.ROLE_REVEAL
+                    ? state.activePlayers().stream()
+                            .findFirst()
+                            .map(player -> player.getPlayerId())
+                            .orElse(null)
+                    : state.getPendingAction() == null
+                            ? state.getCurrentPlayerId()
+                            : state.getPendingAction().actorPlayerId();
             var actor = state.player(actorId);
             if (actor == null) {
                 continue;

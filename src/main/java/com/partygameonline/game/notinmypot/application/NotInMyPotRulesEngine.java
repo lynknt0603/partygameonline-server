@@ -45,14 +45,21 @@ public final class NotInMyPotRulesEngine {
         if (state.isDuplicateCommand(action.commandId())) {
             return ValidationResult.reject("DUPLICATE_REQUEST", "This request was already processed");
         }
-        if (action.expectedVersion() != null && action.expectedVersion() != state.getStateVersion()) {
+        String type = normalized(action.type());
+        if (!NotInMyPotAction.SET_PREFERRED_CARD.equals(type)
+                && action.expectedVersion() != null
+                && action.expectedVersion() != state.getStateVersion()) {
             return ValidationResult.reject("STALE_VERSION", "The game state has changed");
         }
 
-        String type = normalized(action.type());
         if (NotInMyPotAction.TIMEOUT.equals(type)) {
             if (!state.timeoutIsDue(Instant.now())) {
                 return ValidationResult.reject("TIMEOUT_NOT_DUE", "The turn or pending action has not expired");
+            }
+            if (state.getPhase() == NotInMyPotPhase.ROLE_REVEAL) {
+                return actor.isActive()
+                        ? ValidationResult.ok()
+                        : ValidationResult.reject("PLAYER_EXPELLED", "You cannot act after leaving the house");
             }
             String expectedActor = state.getPendingAction() == null
                     ? state.getCurrentPlayerId()
@@ -78,6 +85,7 @@ public final class NotInMyPotRulesEngine {
         }
 
         return switch (type) {
+            case NotInMyPotAction.SET_PREFERRED_CARD -> validatePreferredCard(actor, action);
             case NotInMyPotAction.PLAY_INGREDIENT -> validateIngredient(actor, action);
             case NotInMyPotAction.PLAY_ACTION -> validateAction(state, actor, action);
             case NotInMyPotAction.DECLARE_POT_READY -> validatePotReady(state, actor);
@@ -102,6 +110,7 @@ public final class NotInMyPotRulesEngine {
         List<NotInMyPotEvent> events = new ArrayList<>();
         String type = normalized(action.type());
         switch (type) {
+            case NotInMyPotAction.SET_PREFERRED_CARD -> applyPreferredCard(state, actorId, action);
             case NotInMyPotAction.PLAY_INGREDIENT -> applyIngredient(state, actorId, action, events);
             case NotInMyPotAction.PLAY_ACTION -> applyAction(state, actorId, action, random, events);
             case NotInMyPotAction.SELECT_TARGET -> applySelectedTarget(state, actorId, action, random, events);
@@ -114,8 +123,32 @@ public final class NotInMyPotRulesEngine {
                 // for a caller that bypasses GameRuntimeService.
             }
         }
-        state.bumpVersion();
+        if (!NotInMyPotAction.SET_PREFERRED_CARD.equals(type)) {
+            state.bumpVersion();
+        }
         return List.copyOf(events);
+    }
+
+    private static ValidationResult validatePreferredCard(
+            NotInMyPotPlayerState actor,
+            NotInMyPotAction action
+    ) {
+        if (action.cardId() == null || action.cardId().isBlank()) {
+            return ValidationResult.ok();
+        }
+        return actor.findHand(action.cardId()) == null
+                ? ValidationResult.reject("CARD_NOT_IN_HAND", "The selected card is not in your hand")
+                : ValidationResult.ok();
+    }
+
+    private static void applyPreferredCard(
+            NotInMyPotGameState state,
+            String actorId,
+            NotInMyPotAction action
+    ) {
+        NotInMyPotPlayerState actor = state.requirePlayer(actorId);
+        String cardId = action.cardId();
+        state.setPreferredCardId(cardId != null && actor.findHand(cardId) != null ? cardId : null);
     }
 
     public static List<NotInMyPotEvent> applyAbandon(
@@ -413,6 +446,7 @@ public final class NotInMyPotRulesEngine {
         if (type == NotInMyPotActionType.OUT_OF_HOUSE) {
             state.incrementDoorCount(targetId);
             addEvent(state, events, "PLAYER_DOOR_UPDATED", Map.of(
+                    "actorPlayerId", actor.getPlayerId(),
                     "playerId", targetId,
                     "doorCount", state.doorCount(targetId)
             ));
@@ -423,7 +457,7 @@ public final class NotInMyPotRulesEngine {
         }
         int discarded = target.getHand().size();
         moveHandToDiscard(state, target);
-        int drawn = drawCards(state, target, NotInMyPotGameState.TRASH_DRAW_COUNT, events);
+        int drawn = drawCards(state, target, NotInMyPotGameState.TRASH_DRAW_COUNT, "TRASH_REPLACEMENT", events);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("playerId", actor.getPlayerId());
         payload.put("targetPlayerId", targetId);
@@ -514,7 +548,7 @@ public final class NotInMyPotRulesEngine {
             NotInMyPotPlayerState actor,
             List<NotInMyPotEvent> events
     ) {
-        int drawn = drawCards(state, actor, NotInMyPotGameState.EMERGENCY_DRAW_COUNT, events);
+        int drawn = drawCards(state, actor, NotInMyPotGameState.EMERGENCY_DRAW_COUNT, "EMERGENCY_SHOPPING", events);
         addEvent(state, events, "EMERGENCY_SHOPPING_RESOLVED", Map.of(
                 "playerId", actor.getPlayerId(),
                 "drawnCount", drawn,
@@ -643,7 +677,7 @@ public final class NotInMyPotRulesEngine {
         if (actor.getHand().size() != NotInMyPotGameState.HAND_SIZE - 1) {
             throw new IllegalStateException("A normal turn must leave exactly two cards before refill");
         }
-        drawCards(state, actor, NotInMyPotGameState.NORMAL_DRAW_COUNT, events);
+        drawCards(state, actor, NotInMyPotGameState.NORMAL_DRAW_COUNT, "TURN_REFILL", events);
         if (state.isFinished()) {
             return;
         }
@@ -671,6 +705,7 @@ public final class NotInMyPotRulesEngine {
             NotInMyPotGameState state,
             NotInMyPotPlayerState player,
             int count,
+            String reason,
             List<NotInMyPotEvent> events
     ) {
         int drawn = 0;
@@ -680,6 +715,13 @@ public final class NotInMyPotRulesEngine {
             if (state.getDrawPile().isEmpty()) {
                 checkAutomaticWinConditions(state, events);
             }
+        }
+        if (drawn > 0) {
+            addEvent(state, events, "CARDS_DRAWN", Map.of(
+                    "playerId", player.getPlayerId(),
+                    "drawnCount", drawn,
+                    "reason", reason
+            ));
         }
         return drawn;
     }
@@ -697,6 +739,7 @@ public final class NotInMyPotRulesEngine {
             String fromPlayerId,
             List<NotInMyPotEvent> events
     ) {
+        state.setPreferredCardId(null);
         List<NotInMyPotPlayerState> players = state.getPlayers();
         int start = -1;
         for (int index = 0; index < players.size(); index++) {
@@ -722,6 +765,29 @@ public final class NotInMyPotRulesEngine {
             return;
         }
         checkAutomaticWinConditions(state, events);
+    }
+
+    private static void startFirstTurn(
+            NotInMyPotGameState state,
+            RandomSource random,
+            List<NotInMyPotEvent> events
+    ) {
+        List<NotInMyPotPlayerState> activePlayers = state.activePlayers();
+        if (activePlayers.isEmpty()) {
+            checkAutomaticWinConditions(state, events);
+            return;
+        }
+        NotInMyPotPlayerState firstPlayer = activePlayers.get(random.nextInt(activePlayers.size()));
+        state.setPreferredCardId(null);
+        state.setCurrentPlayerId(firstPlayer.getPlayerId());
+        state.setTurnNumber(1);
+        state.setTurnHasActed(false);
+        state.setPhase(NotInMyPotPhase.PLAYING);
+        state.setTurnDeadline(Instant.now().plusSeconds(state.getSettings().turnSeconds()));
+        addEvent(state, events, "TURN_STARTED", Map.of(
+                "playerId", firstPlayer.getPlayerId(),
+                "turnNumber", state.getTurnNumber()
+        ));
     }
 
     private static boolean checkAutomaticWinConditions(
@@ -780,15 +846,20 @@ public final class NotInMyPotRulesEngine {
             RandomSource random,
             List<NotInMyPotEvent> events
     ) {
+        if (state.getPhase() == NotInMyPotPhase.ROLE_REVEAL) {
+            startFirstTurn(state, random, events);
+            return;
+        }
         NotInMyPotPendingAction pending = state.getPendingAction();
         if (pending == null) {
             NotInMyPotPlayerState actor = state.requirePlayer(state.getCurrentPlayerId());
             state.setTurnDeadline(null);
             addEvent(state, events, "TURN_TIMED_OUT", Map.of(
                     "playerId", actor.getPlayerId(),
-                    "turnNumber", state.getTurnNumber()
+                    "turnNumber", state.getTurnNumber(),
+                    "automatic", true
             ));
-            advanceTurn(state, actor.getPlayerId(), events);
+            autoPlayRandomCard(state, actor, random, events);
             return;
         }
         NotInMyPotPlayerState actor = state.requirePlayer(pending.actorPlayerId());
@@ -847,6 +918,66 @@ public final class NotInMyPotRulesEngine {
                 completeShoppingReturn(state, actor, firstTwo, true, events);
             }
         }
+    }
+
+    private static void autoPlayRandomCard(
+            NotInMyPotGameState state,
+            NotInMyPotPlayerState actor,
+            RandomSource random,
+            List<NotInMyPotEvent> events
+    ) {
+        boolean hasTarget = state.activePlayers().stream()
+                .anyMatch(player -> !player.getPlayerId().equals(actor.getPlayerId()));
+        List<NotInMyPotCard> playableCards = actor.getHand().stream()
+                .filter(card -> card.isIngredient()
+                        || !card.actionType().requiresTarget()
+                        || hasTarget)
+                .toList();
+        if (playableCards.isEmpty()) {
+            advanceTurn(state, actor.getPlayerId(), events);
+            return;
+        }
+
+        NotInMyPotCard preferredCard = playableCards.stream()
+                .filter(candidate -> candidate.cardId().equals(state.getPreferredCardId()))
+                .findFirst()
+                .orElse(null);
+        NotInMyPotCard card = preferredCard != null
+                ? preferredCard
+                : playableCards.get(random.nextInt(playableCards.size()));
+        state.setPreferredCardId(null);
+        if (card.isIngredient()) {
+            applyIngredient(state, actor.getPlayerId(), new NotInMyPotAction(
+                    NotInMyPotAction.PLAY_INGREDIENT,
+                    null,
+                    null,
+                    card.cardId(),
+                    card.ingredientType().name(),
+                    null,
+                    null,
+                    List.of()
+            ), events);
+            return;
+        }
+
+        String targetId = null;
+        if (card.actionType().requiresTarget()) {
+            List<String> targets = state.activePlayers().stream()
+                    .map(NotInMyPotPlayerState::getPlayerId)
+                    .filter(id -> !id.equals(actor.getPlayerId()))
+                    .toList();
+            targetId = targets.get(random.nextInt(targets.size()));
+        }
+        applyAction(state, actor.getPlayerId(), new NotInMyPotAction(
+                NotInMyPotAction.PLAY_ACTION,
+                null,
+                null,
+                card.cardId(),
+                null,
+                card.actionType().name(),
+                targetId,
+                List.of()
+        ), random, events);
     }
 
     private static void resolveAbandonedPendingAction(

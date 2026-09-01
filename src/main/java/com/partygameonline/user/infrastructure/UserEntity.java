@@ -1,5 +1,6 @@
 package com.partygameonline.user.infrastructure;
 
+import com.partygameonline.common.avatar.AvatarCatalog;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -27,6 +28,9 @@ public class UserEntity {
     @Column(name = "user_key", nullable = false, length = 64, unique = true)
     private String userKey;
 
+    @Column(name = "avatar_key", nullable = false, length = 64)
+    private String avatarKey;
+
     @Column(name = "created_date", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -38,11 +42,17 @@ public class UserEntity {
 
     public UserEntity(UUID id, String displayName, String username, String passwordAes,
                       String userKey, Instant createdAt, Instant updatedAt) {
+        this(id, displayName, username, passwordAes, userKey, AvatarCatalog.DEFAULT_KEY, createdAt, updatedAt);
+    }
+
+    public UserEntity(UUID id, String displayName, String username, String passwordAes,
+                      String userKey, String avatarKey, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.displayName = displayName;
         this.username = username;
         this.passwordAes = passwordAes;
         this.userKey = userKey;
+        this.avatarKey = AvatarCatalog.normalizeKey(avatarKey);
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -54,13 +64,22 @@ public class UserEntity {
     }
 
     public static UserEntity newMember(String username, String passwordAes) {
+        return newMember(username, passwordAes, username);
+    }
+
+    public static UserEntity newMember(String username, String passwordAes, String displayName) {
         Instant now = Instant.now();
         UUID id = UUID.randomUUID();
-        return new UserEntity(id, username, username, passwordAes, UUID.randomUUID().toString(), now, now);
+        return new UserEntity(id, displayName, username, passwordAes, UUID.randomUUID().toString(), now, now);
     }
 
     public void rename(String displayName) {
         this.displayName = displayName;
+        this.updatedAt = Instant.now();
+    }
+
+    public void selectAvatar(String avatarKey) {
+        this.avatarKey = AvatarCatalog.normalizeKey(avatarKey);
         this.updatedAt = Instant.now();
     }
 
@@ -90,5 +109,9 @@ public class UserEntity {
 
     public String getUserKey() {
         return userKey;
+    }
+
+    public String getAvatarKey() {
+        return avatarKey;
     }
 }

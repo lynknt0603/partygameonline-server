@@ -37,14 +37,14 @@ class ProfileStatsControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Stats Guest\"}"))
+                        .content("{\"displayName\":\"StatsGuest\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/profile/me/stats").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.playerId").isNotEmpty())
-                .andExpect(jsonPath("$.player.displayName").value("Stats Guest"))
-                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatar-default.png"))
+                .andExpect(jsonPath("$.player.displayName").value("StatsGuest"))
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/default.png"))
                 .andExpect(jsonPath("$.player.joinedAt").isNotEmpty())
                 .andExpect(jsonPath("$.player.role").value("Guest"))
                 .andExpect(jsonPath("$.player.platform").value("Web"))
@@ -79,13 +79,13 @@ class ProfileStatsControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Viewer\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/profile/" + username).session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.username").value(username))
-                .andExpect(jsonPath("$.player.displayName").value(username))
+                .andExpect(jsonPath("$.player.displayName").value("Viewer"))
                 .andExpect(jsonPath("$.player.role").value("Member"))
                 .andExpect(jsonPath("$.nobStats.totalMatches").value(0))
                 .andExpect(jsonPath("$.nobStats.winRate").value(0.0));
@@ -101,7 +101,7 @@ class ProfileStatsControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Profile Viewer\"}"))
+                        .content("{\"displayName\":\"Viewer\"}"))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/profile/" + user.getUserKey()).session(session))
@@ -121,7 +121,7 @@ class ProfileStatsControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Old Name\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("MEMBER"));
 
@@ -143,6 +143,100 @@ class ProfileStatsControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.username").value(username))
                 .andExpect(jsonPath("$.player.displayName").value("Room Name"));
+
+        mockMvc.perform(patch("/api/v1/profile/me")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"12345678901\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void memberAvatarIsPersistedAcrossSessionAndPublicProfile() throws Exception {
+        String username = "avatar" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Avatar\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
+
+        String roomId = com.jayway.jsonpath.JsonPath.read(
+                mockMvc.perform(post("/api/v1/rooms")
+                                .session(session)
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"gameId":"night-of-bloodlines","name":"Avatar Room","visibility":"PUBLIC"}
+                                        """))
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(),
+                "$.id"
+        );
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"09_happy_dog.png\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/session/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/09_happy_dog.png"));
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"default.png\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
+
+        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/default.png"));
+
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/default.png"));
+    }
+
+    @Test
+    void memberCannotSelectLockedOrUnknownAvatar() throws Exception {
+        String username = "avatarlocked" + UUID.randomUUID().toString().replace("-", "").substring(0, 6);
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"AvatarLock\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(patch("/api/v1/profile/me/avatar")
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"avatarKey\":\"master.png\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_AVATAR"));
     }
 
     @Test
@@ -154,7 +248,7 @@ class ProfileStatsControllerTests {
                                 .session(session)
                                 .with(csrf())
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"displayName\":\"Guest Before\"}"))
+                                .content("{\"displayName\":\"Before\"}"))
                         .andExpect(status().isCreated())
                         .andReturn()
                         .getResponse()
@@ -166,10 +260,10 @@ class ProfileStatsControllerTests {
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Guest In Room\"}"))
+                        .content("{\"displayName\":\"In Room\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerId").value(playerId))
-                .andExpect(jsonPath("$.displayName").value("Guest In Room"))
+                .andExpect(jsonPath("$.displayName").value("In Room"))
                 .andExpect(jsonPath("$.kind").value("GUEST"));
     }
 }

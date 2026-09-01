@@ -10,6 +10,7 @@ import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.common.error.ApiException;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
@@ -32,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ProfileStatsService {
 
-    private static final String DEFAULT_AVATAR = "/assets/avatar-default.png";
     private static final String PLATFORM = "Web";
     private static final DateTimeFormatter JOINED_AT_FORMAT =
             DateTimeFormatter.ofPattern("dd/MM/yyyy").withZone(ZoneOffset.UTC);
@@ -187,7 +187,7 @@ public class ProfileStatsService {
                         playerId,
                         username,
                         displayName,
-                        DEFAULT_AVATAR,
+                        avatarUrlForPlayer(playerId),
                         JOINED_AT_FORMAT.format(joinedAt),
                         role,
                         PLATFORM
@@ -211,10 +211,9 @@ public class ProfileStatsService {
                 playerId, WheresTheBoneGameManifest.ID
         );
         Map<UUID, MatchPlayerEntity> players = playerByMatch(matches, playerId);
-        FactionCounter thief = new FactionCounter();
-        FactionCounter yard = new FactionCounter();
         FactionCounter white = new FactionCounter();
-        FactionCounter packmate = new FactionCounter();
+        FactionCounter yardTeam = new FactionCounter();
+        FactionCounter boneThiefTeam = new FactionCounter();
         long wins = 0;
         for (MatchEntity match : matches) {
             MatchPlayerEntity player = players.get(match.getId());
@@ -222,10 +221,9 @@ public class ProfileStatsService {
             boolean won = isWin(match, player, playerId);
             if (won) wins++;
             FactionCounter counter = switch (player.getRole() == null ? "" : player.getRole().toUpperCase(Locale.ROOT)) {
-                case "BONE_THIEF" -> thief;
-                case "YARD_DOG" -> yard;
                 case "WHITE_DOG" -> white;
-                case "PACKMATE" -> packmate;
+                case "YARD_DOG" -> yardTeam;
+                case "BONE_THIEF", "PACKMATE" -> boneThiefTeam;
                 default -> null;
             };
             if (counter != null) counter.record(won);
@@ -236,7 +234,7 @@ public class ProfileStatsService {
         int highestElo = statistic == null ? UserGameStatisticEntity.DEFAULT_ELO : statistic.getHighestEloForGame();
         return new ProfileStatsResponse.WheresTheBoneStats(
                 matches.size(), wins, rate(wins, matches.size()),
-                thief.toResponse(), yard.toResponse(), white.toResponse(), packmate.toResponse(), elo, highestElo
+                white.toResponse(), yardTeam.toResponse(), boneThiefTeam.toResponse(), elo, highestElo
         );
     }
 
@@ -247,6 +245,16 @@ public class ProfileStatsService {
         return userRepository.findByUserKey(playerId)
                 .map(UserEntity::getUsername)
                 .orElse(null);
+    }
+
+    private String avatarUrlForPlayer(String playerId) {
+        if (userRepository == null) {
+            return AvatarCatalog.DEFAULT_URL;
+        }
+        return userRepository.findByUserKey(playerId)
+                .map(UserEntity::getAvatarKey)
+                .map(AvatarCatalog::urlForKey)
+                .orElse(AvatarCatalog.DEFAULT_URL);
     }
 
     private List<NobGameRoundEntity> roundRows(List<MatchEntity> matches, String playerId) {

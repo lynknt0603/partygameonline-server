@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
+import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.history.infrastructure.MatchEntity;
 import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
@@ -112,10 +113,46 @@ class ProfileStatsServiceTests {
         assertThat(response.nobStats().halfblood()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
     }
 
+    @Test
+    void groupsWheresTheBoneStatsIntoWhiteYardAndBoneThiefTeams() {
+        MatchEntity whiteWin = match(WheresTheBoneGameManifest.ID, "2026-08-22T10:00:00Z");
+        MatchEntity yardLoss = match(WheresTheBoneGameManifest.ID, "2026-08-22T11:00:00Z");
+        MatchEntity thiefWin = match(WheresTheBoneGameManifest.ID, "2026-08-22T12:00:00Z");
+        MatchEntity packmateLoss = match(WheresTheBoneGameManifest.ID, "2026-08-22T13:00:00Z");
+        List<MatchEntity> matches = List.of(whiteWin, yardLoss, thiefWin, packmateLoss);
+        when(matchRepository.findAllFinishedForPlayerAndGame(PLAYER_ID, NobGameManifest.ID))
+                .thenReturn(List.of());
+        when(matchRepository.findAllFinishedForPlayerAndGame(PLAYER_ID, WheresTheBoneGameManifest.ID))
+                .thenReturn(matches);
+        when(playerRepository.findByMatchIdInOrderByMatchIdAscSeatAscIdAsc(
+                matches.stream().map(MatchEntity::getId).toList()
+        )).thenReturn(List.of(
+                bonePlayer(whiteWin, "WIN", "WHITE_DOG"),
+                bonePlayer(yardLoss, "LOSS", "YARD_DOG"),
+                bonePlayer(thiefWin, "WIN", "BONE_THIEF"),
+                bonePlayer(packmateLoss, "LOSS", "PACKMATE")
+        ));
+
+        ProfileStatsResponse.WheresTheBoneStats stats = service.getStats(
+                new PlayerPrincipal(PLAYER_ID, "BloodMoon", com.partygameonline.session.domain.SessionKind.MEMBER,
+                        Instant.parse("2025-02-12T00:00:00Z"))
+        ).wheresTheBoneStats();
+
+        assertThat(stats.totalMatches()).isEqualTo(4);
+        assertThat(stats.matchesWon()).isEqualTo(2);
+        assertThat(stats.whiteDog()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
+        assertThat(stats.yardTeam()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 0, 0.0));
+        assertThat(stats.boneThiefTeam()).isEqualTo(new ProfileStatsResponse.FactionStats(2, 1, 50.0));
+    }
+
     private static MatchEntity match(String finishedAt) {
+        return match(NobGameManifest.ID, finishedAt);
+    }
+
+    private static MatchEntity match(String gameId, String finishedAt) {
         Instant finished = Instant.parse(finishedAt);
         return MatchEntity.completed(
-                NobGameManifest.ID,
+                gameId,
                 "ROOM1",
                 null,
                 "COMPLETED",
@@ -135,6 +172,20 @@ class ProfileStatsServiceTests {
                 10,
                 "HUNTER",
                 bloodline
+        );
+    }
+
+    private static MatchPlayerEntity bonePlayer(MatchEntity match, String result, String role) {
+        return MatchPlayerEntity.newPlayer(
+                match.getId(),
+                null,
+                PLAYER_ID,
+                "BloodMoon",
+                0,
+                result,
+                0,
+                role,
+                null
         );
     }
 

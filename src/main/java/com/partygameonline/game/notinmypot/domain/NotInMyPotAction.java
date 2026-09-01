@@ -15,6 +15,7 @@ public record NotInMyPotAction(
 
     public static final String PLAY_INGREDIENT = "PLAY_INGREDIENT";
     public static final String PLAY_ACTION = "PLAY_ACTION";
+    public static final String SET_PREFERRED_CARD = "SET_PREFERRED_CARD";
     public static final String SELECT_TARGET = "SELECT_TARGET";
     public static final String RETURN_SHOPPING_CARDS = "RETURN_SHOPPING_CARDS";
     public static final String ACKNOWLEDGE_SLOTTED_SPOON = "ACKNOWLEDGE_SLOTTED_SPOON";

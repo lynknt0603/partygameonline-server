@@ -25,9 +25,10 @@ public class RankingController {
             @RequestParam(required = false) String gameId,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String bloodline,
+            @RequestParam(required = false) String role,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size
     ) {
-        return rankingService.getRanking(gameId, sort, bloodline, page, size, principal);
+        return rankingService.getRanking(gameId, sort, bloodline, role, page, size, principal);
     }
 }

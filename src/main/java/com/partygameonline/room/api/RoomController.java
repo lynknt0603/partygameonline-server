@@ -102,8 +102,19 @@ public class RoomController {
                 request == null ? java.util.Map.of() : request.nob(),
                 request == null ? java.util.Map.of() : request.notInMyPot(),
                 request == null ? java.util.Map.of() : request.wheresTheBone(),
-                request == null ? null : request.locked()
+                request == null ? null : request.locked(),
+                request == null ? null : request.maxPlayers()
         ));
+    }
+
+    @PostMapping("/{roomId}/kick/{playerId}")
+    public RoomResponse kick(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @PathVariable String roomId,
+            @PathVariable String playerId
+    ) {
+        requireMember(principal);
+        return RoomResponse.from(roomService.kick(principal, roomId, playerId));
     }
 
     @PostMapping("/{roomId}/close")

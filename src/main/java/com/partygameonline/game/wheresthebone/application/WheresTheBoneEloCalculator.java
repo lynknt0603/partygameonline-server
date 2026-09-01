@@ -102,9 +102,8 @@ public final class WheresTheBoneEloCalculator {
     }
 
     /**
-     * Allocates integer points with a mandatory one-point floor per side
-     * participant, then applies largest remainder rounding. The optional cap
-     * is the maximum number of points a participant may lose without going
+     * Allocates integer points with largest-remainder rounding. The optional
+     * cap is the maximum number of points a participant may lose without going
      * below zero ELO.
      */
     private static int[] allocate(int pool, List<DesiredChange> changes, int[] caps) {
@@ -114,15 +113,14 @@ public final class WheresTheBoneEloCalculator {
         int[] allocation = new int[changes.size()];
         int[] remainingCaps = new int[changes.size()];
         for (int index = 0; index < changes.size(); index++) {
-            allocation[index] = 1;
             int cap = caps == null ? Integer.MAX_VALUE : caps[index];
             if (cap < 1) {
                 throw new IllegalArgumentException("A loser must have positive ELO to receive a loss");
             }
-            remainingCaps[index] = cap - 1;
+            remainingCaps[index] = cap;
         }
 
-        int remaining = pool - changes.size();
+        int remaining = pool;
         while (remaining > 0) {
             List<Integer> active = new ArrayList<>();
             for (int index = 0; index < changes.size(); index++) {
@@ -182,6 +180,31 @@ public final class WheresTheBoneEloCalculator {
                 }
             }
             remaining = 0;
+        }
+
+        // The requested invariants require a signed delta for every player.
+        // With the bounded factors and normal pools Hamilton allocation already
+        // satisfies this; this deterministic repair handles a narrow capped
+        // edge case without changing the pool total.
+        for (int index = 0; index < allocation.length; index++) {
+            if (allocation[index] > 0) {
+                continue;
+            }
+            int donor = -1;
+            for (int candidate = 0; candidate < allocation.length; candidate++) {
+                if (allocation[candidate] > 1
+                        && (donor < 0 || allocation[candidate] > allocation[donor]
+                        || (allocation[candidate] == allocation[donor]
+                        && changes.get(candidate).player().playerId()
+                        .compareTo(changes.get(donor).player().playerId()) < 0))) {
+                    donor = candidate;
+                }
+            }
+            if (donor < 0) {
+                throw new IllegalArgumentException("The ELO pool is too small to give every player a signed delta");
+            }
+            allocation[donor]--;
+            allocation[index]++;
         }
         return allocation;
     }

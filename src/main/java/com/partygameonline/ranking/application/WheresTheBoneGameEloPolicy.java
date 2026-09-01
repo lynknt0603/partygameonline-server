@@ -78,6 +78,9 @@ public final class WheresTheBoneGameEloPolicy implements GameEloPolicy {
 
     @Override
     public EloRatingService.EloMatchResult calculateForfeit(String playerId, int currentElo) {
-        return delegate.calculateForfeit(playerId, currentElo);
+        // A WTB abandon is settled with the official match result so the
+        // player cannot avoid the loser pool by leaving early. There is no
+        // standalone forfeit rating update for this game.
+        return new EloRatingService.EloMatchResult(Map.of(), currentElo);
     }
 }

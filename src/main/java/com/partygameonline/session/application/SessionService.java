@@ -1,5 +1,6 @@
 package com.partygameonline.session.application;
 
+import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.security.PlayerAuthentication;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.session.domain.SessionKind;
@@ -56,6 +57,7 @@ public class SessionService {
             String playerId,
             String displayName,
             Instant createdAt,
+            String avatarUrl,
             HttpServletRequest request,
             HttpServletResponse response
     ) {
@@ -63,12 +65,29 @@ public class SessionService {
         if (existingSession != null) {
             request.changeSessionId();
         }
-        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName, createdAt);
+        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName, createdAt, avatarUrl);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new PlayerAuthentication(principal));
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
         return principal;
+    }
+
+    public PlayerPrincipal createMemberSession(
+            String playerId,
+            String displayName,
+            Instant createdAt,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        return createMemberSession(
+                playerId,
+                displayName,
+                createdAt,
+                AvatarCatalog.DEFAULT_URL,
+                request,
+                response
+        );
     }
 
     private java.util.Optional<PlayerPrincipal> existingGuest() {

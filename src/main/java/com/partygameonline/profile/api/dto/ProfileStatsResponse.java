@@ -46,16 +46,15 @@ public record ProfileStatsResponse(
             long totalMatches,
             long matchesWon,
             double winRate,
-            FactionStats boneThief,
-            FactionStats yardDog,
             FactionStats whiteDog,
-            FactionStats packmate,
+            FactionStats yardTeam,
+            FactionStats boneThiefTeam,
             int elo,
             int highestElo
     ) {
         public static WheresTheBoneStats empty() {
             FactionStats emptyFaction = new FactionStats(0, 0, 0.0);
-            return new WheresTheBoneStats(0, 0, 0.0, emptyFaction, emptyFaction, emptyFaction, emptyFaction, 5000, 5000);
+            return new WheresTheBoneStats(0, 0, 0.0, emptyFaction, emptyFaction, emptyFaction, 5000, 5000);
         }
     }
 }

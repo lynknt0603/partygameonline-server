@@ -386,9 +386,13 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
         moonTokenClaimed.clear();
         moonPickNeed.clear();
         moonPicksTaken.clear();
+        // Reserve every rewarded player's required pick(s) before adding
+        // optional choices. Otherwise, earlier players can lock three marks
+        // each and leave later players with no pick when the pool gets low.
         for (String playerId : rewardIds) {
+            int required = com.partygameonline.game.nob.scoring.NobScoringService.moonPicksNeeded(this, playerId);
             List<NobMoonTokenOption> options = new ArrayList<>(3);
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < required; i++) {
                 NobMoonMark mark = drawMoonMark(random);
                 if (mark == null) {
                     break;
@@ -405,6 +409,24 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
             moonTokenOffers.put(playerId, options);
             moonPicksTaken.put(playerId, 0);
             moonPickNeed.put(playerId, need);
+        }
+        boolean addedChoice = true;
+        while (addedChoice && !moonMarkPool.isEmpty()) {
+            addedChoice = false;
+            for (String playerId : rewardIds) {
+                List<NobMoonTokenOption> current = moonTokenOffers.get(playerId);
+                if (current == null || current.size() >= 3) {
+                    continue;
+                }
+                NobMoonMark mark = drawMoonMark(random);
+                if (mark == null) {
+                    break;
+                }
+                List<NobMoonTokenOption> expanded = new ArrayList<>(current);
+                expanded.add(new NobMoonTokenOption(UUID.randomUUID().toString(), mark));
+                moonTokenOffers.put(playerId, List.copyOf(expanded));
+                addedChoice = true;
+            }
         }
         Instant now = Instant.now();
         windowStartedAt = now;
