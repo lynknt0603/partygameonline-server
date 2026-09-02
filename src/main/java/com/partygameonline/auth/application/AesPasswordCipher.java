@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.Optional;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -18,16 +19,17 @@ public class AesPasswordCipher {
     private static final int IV_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final int BCRYPT_STRENGTH = 12;
+    private static final String ONE_TIME_LEGACY_KEY = "DEV_AES_KEY";
     private final SecretKeySpec key;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(BCRYPT_STRENGTH);
 
     public AesPasswordCipher(@Value("${app.encryption.key}") String configuredKey) {
-        if (configuredKey == null || configuredKey.isBlank()) {
-            throw new IllegalArgumentException("app.encryption.key must not be blank");
-        }
+        String migrationKey = configuredKey == null || configuredKey.isBlank()
+                ? ONE_TIME_LEGACY_KEY
+                : configuredKey;
         try {
             this.key = new SecretKeySpec(
-                    MessageDigest.getInstance("SHA-256").digest(configuredKey.getBytes(StandardCharsets.UTF_8)),
+                    MessageDigest.getInstance("SHA-256").digest(migrationKey.getBytes(StandardCharsets.UTF_8)),
                     "AES"
             );
         } catch (GeneralSecurityException exception) {
@@ -65,10 +67,22 @@ public class AesPasswordCipher {
     }
 
     private boolean matchesLegacyAes(String rawPassword, String encodedPassword) {
+        return decryptLegacy(encodedPassword)
+                .map(actual -> MessageDigest.isEqual(
+                        actual.getBytes(StandardCharsets.UTF_8),
+                        rawPassword.getBytes(StandardCharsets.UTF_8)
+                ))
+                .orElse(false);
+    }
+
+    Optional<String> decryptLegacy(String encodedPassword) {
+        if (encodedPassword == null || encodedPassword.isBlank() || isBcrypt(encodedPassword)) {
+            return Optional.empty();
+        }
         try {
             byte[] payload = Base64.getDecoder().decode(encodedPassword);
             if (payload.length <= IV_BYTES) {
-                return false;
+                return Optional.empty();
             }
             ByteBuffer buffer = ByteBuffer.wrap(payload);
             byte[] iv = new byte[IV_BYTES];
@@ -78,9 +92,9 @@ public class AesPasswordCipher {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
             byte[] actual = cipher.doFinal(encrypted);
-            return MessageDigest.isEqual(actual, rawPassword.getBytes(StandardCharsets.UTF_8));
+            return Optional.of(new String(actual, StandardCharsets.UTF_8));
         } catch (GeneralSecurityException | IllegalArgumentException exception) {
-            return false;
+            return Optional.empty();
         }
     }
 
