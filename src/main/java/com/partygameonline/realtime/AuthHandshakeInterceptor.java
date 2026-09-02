@@ -63,10 +63,23 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         }
         try {
             URI originUri = URI.create(origin);
-            return request.getURI().getHost() != null
-                    && request.getURI().getHost().equalsIgnoreCase(originUri.getHost());
+            URI requestUri = request.getURI();
+            return requestUri.getScheme() != null
+                    && requestUri.getScheme().equalsIgnoreCase(originUri.getScheme())
+                    && requestUri.getHost() != null
+                    && requestUri.getHost().equalsIgnoreCase(originUri.getHost())
+                    && effectivePort(requestUri) == effectivePort(originUri);
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) || "wss".equalsIgnoreCase(uri.getScheme())
+                ? 443
+                : 80;
     }
 }

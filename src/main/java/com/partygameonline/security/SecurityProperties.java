@@ -24,6 +24,10 @@ public record SecurityProperties(
                         .flatMap((origin) -> java.util.Arrays.stream(origin.split(",")))
                         .map(String::trim)
                         .filter(origin -> !origin.isEmpty())
+                        // Credentialed browser requests must never use a
+                        // wildcard. Wildcards are ignored instead of being
+                        // reflected back as an arbitrary Origin.
+                        .filter(origin -> !origin.contains("*"))
                         .toList();
             }
         }

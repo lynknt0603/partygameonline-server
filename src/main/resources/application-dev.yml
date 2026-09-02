@@ -3,6 +3,8 @@ spring:
     name: partygameonline-server-dev
 
 app:
+  encryption:
+    key: ${APP_ENCRYPTION_KEY:local-dev-only-legacy-key}
   security:
     cors:
       allowed-origins:

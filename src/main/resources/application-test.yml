@@ -17,6 +17,8 @@ games:
     timeout-scheduler-enabled: false
 
 app:
+  encryption:
+    key: test-only-legacy-password-key
   security:
     cors:
       allowed-origins:

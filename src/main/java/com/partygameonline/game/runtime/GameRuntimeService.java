@@ -10,6 +10,7 @@ import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
 import com.partygameonline.game.core.GameRoundEloSource;
 import com.partygameonline.ranking.application.EloRatingService;
+import com.partygameonline.realtime.GameActionRateLimiter;
 import com.partygameonline.room.domain.GameRoom;
 import com.partygameonline.room.domain.RoomPlayer;
 import java.security.SecureRandom;
@@ -27,21 +28,32 @@ public class GameRuntimeService {
     private final GameRegistry gameRegistry;
     private final GameSessionRepository sessionRepository;
     private final EloRatingService eloRatingService;
+    private final GameActionRateLimiter rateLimiter;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
     public GameRuntimeService(
             GameRegistry gameRegistry,
             GameSessionRepository sessionRepository,
-            EloRatingService eloRatingService
+            EloRatingService eloRatingService,
+            GameActionRateLimiter rateLimiter
     ) {
         this.gameRegistry = gameRegistry;
         this.sessionRepository = sessionRepository;
         this.eloRatingService = eloRatingService;
+        this.rateLimiter = rateLimiter;
     }
 
     public GameRuntimeService(GameRegistry gameRegistry, GameSessionRepository sessionRepository) {
-        this(gameRegistry, sessionRepository, null);
+        this(gameRegistry, sessionRepository, null, new GameActionRateLimiter());
+    }
+
+    public GameRuntimeService(
+            GameRegistry gameRegistry,
+            GameSessionRepository sessionRepository,
+            EloRatingService eloRatingService
+    ) {
+        this(gameRegistry, sessionRepository, eloRatingService, new GameActionRateLimiter());
     }
 
     public Optional<GameSession> startGame(GameRoom room) {
@@ -86,6 +98,12 @@ public class GameRuntimeService {
 
     public AppliedAction applyAction(GameSession session, PlayerContext actor, Map<String, Object> payload) {
         Object action = gameRegistry.decodeAction(session.getGameId(), payload);
+        String operation = payload == null ? null : String.valueOf(payload.get("type"));
+        if (!rateLimiter.tryAcquire(actor.playerId(), operation)) {
+            return AppliedAction.rejected(
+                    ValidationResult.reject("RATE_LIMITED", "Too many actions; please slow down")
+            );
+        }
         ValidationResult validation = gameRegistry.validate(session.getGameId(), session.getState(), actor, action);
         if (!validation.valid()) {
             return AppliedAction.rejected(validation);

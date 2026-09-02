@@ -121,7 +121,9 @@ public class NotInMyPotGameController {
             }
             Map<String, Object> views = runtimeService.projectViews(room, session);
             List<Object> events = List.copyOf(applied.result().events());
-            realtimePublisher.gameEvents(room, commandId, principal.playerId(), events, views);
+            if (!events.isEmpty()) {
+                realtimePublisher.gameEvents(room, commandId, principal.playerId(), events, views);
+            }
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, commandId, applied.result().winnerPlayerId(), views);
                 roomService.recycleFinishedRoom(room);

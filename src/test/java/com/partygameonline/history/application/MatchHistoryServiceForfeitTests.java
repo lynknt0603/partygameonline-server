@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,12 +30,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 class MatchHistoryServiceForfeitTests {
 
     @Test
-    void soleRemainingNotInMyPotPlayerWinsEloEvenWhenTheirFactionLost() {
+    void massForfeitNotInMyPotMatchIsUnrankedAndDoesNotRewardSoleSurvivor() {
         MatchJpaRepository matchRepository = mock(MatchJpaRepository.class);
         MatchPlayerJpaRepository matchPlayerRepository = mock(MatchPlayerJpaRepository.class);
         GameRegistry gameRegistry = mock(GameRegistry.class);
@@ -90,30 +92,20 @@ class MatchHistoryServiceForfeitTests {
             when(eloRatingService.applyForfeit(NotInMyPotGameManifest.ID, botId))
                     .thenReturn(forfeit(botId));
         }
-        when(eloRatingService.completeMatch(
-                eq(NotInMyPotGameManifest.ID),
-                eq(List.of("host")),
-                eq(Set.of("host")),
-                any()
-        )).thenReturn(new EloRatingService.EloMatchResult(Map.of(
-                "host",
-                new EloRatingService.EloChange("host", true, 5000, 50, 5050)
-        ), 5000));
-
         service.recordIfFinished(room, session);
 
         InOrder order = inOrder(eloRatingService);
         order.verify(eloRatingService).applyForfeit(NotInMyPotGameManifest.ID, "bot-1");
         order.verify(eloRatingService).applyForfeit(NotInMyPotGameManifest.ID, "bot-2");
         order.verify(eloRatingService).applyForfeit(NotInMyPotGameManifest.ID, "bot-3");
-        order.verify(eloRatingService).completeMatch(
-                NotInMyPotGameManifest.ID,
-                List.of("host"),
-                Set.of("host"),
-                session.getState()
-        );
+        verify(eloRatingService, never()).completeMatch(any(), any(), any(), any());
         verify(eloRatingService, never()).applyForfeit(NotInMyPotGameManifest.ID, "host");
         assertThat(session.getForfeitedPlayerIds()).containsExactlyInAnyOrder("bot-1", "bot-2", "bot-3");
+        ArgumentCaptor<MatchEntity> matches = ArgumentCaptor.forClass(MatchEntity.class);
+        verify(matchRepository, atLeastOnce()).save(matches.capture());
+        MatchEntity persisted = matches.getAllValues().get(matches.getAllValues().size() - 1);
+        assertThat(persisted.getWinnerPlayerId()).isNull();
+        assertThat(persisted.getResult()).isEqualTo("UNRANKED_FORFEIT");
     }
 
     private static EloRatingService.EloMatchResult forfeit(String playerId) {

@@ -4,12 +4,12 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,8 +17,9 @@ public class AesPasswordCipher {
 
     private static final int IV_BYTES = 12;
     private static final int TAG_BITS = 128;
+    private static final int BCRYPT_STRENGTH = 12;
     private final SecretKeySpec key;
-    private final SecureRandom secureRandom = new SecureRandom();
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(BCRYPT_STRENGTH);
 
     public AesPasswordCipher(@Value("${app.encryption.key}") String configuredKey) {
         if (configuredKey == null || configuredKey.isBlank()) {
@@ -35,21 +36,35 @@ public class AesPasswordCipher {
     }
 
     public String encrypt(String rawPassword) {
-        try {
-            byte[] iv = new byte[IV_BYTES];
-            secureRandom.nextBytes(iv);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
-            byte[] encrypted = cipher.doFinal(rawPassword.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(
-                    ByteBuffer.allocate(iv.length + encrypted.length).put(iv).put(encrypted).array()
-            );
-        } catch (GeneralSecurityException exception) {
-            throw new IllegalStateException("Cannot encrypt password", exception);
+        if (rawPassword == null || rawPassword.isEmpty()) {
+            throw new IllegalArgumentException("Password must not be blank");
         }
+        return passwordEncoder.encode(rawPassword);
     }
 
+    /**
+     * Verifies both current BCrypt hashes and legacy AES ciphertexts so existing
+     * accounts continue to work during the one-login migration window.
+     */
     public boolean matches(String rawPassword, String encodedPassword) {
+        if (rawPassword == null || encodedPassword == null || encodedPassword.isBlank()) {
+            return false;
+        }
+        if (isBcrypt(encodedPassword)) {
+            try {
+                return passwordEncoder.matches(rawPassword, encodedPassword);
+            } catch (IllegalArgumentException exception) {
+                return false;
+            }
+        }
+        return matchesLegacyAes(rawPassword, encodedPassword);
+    }
+
+    public boolean needsUpgrade(String encodedPassword) {
+        return !isBcrypt(encodedPassword);
+    }
+
+    private boolean matchesLegacyAes(String rawPassword, String encodedPassword) {
         try {
             byte[] payload = Base64.getDecoder().decode(encodedPassword);
             if (payload.length <= IV_BYTES) {
@@ -67,5 +82,12 @@ public class AesPasswordCipher {
         } catch (GeneralSecurityException | IllegalArgumentException exception) {
             return false;
         }
+    }
+
+    private static boolean isBcrypt(String encodedPassword) {
+        return encodedPassword != null
+                && (encodedPassword.startsWith("$2a$")
+                || encodedPassword.startsWith("$2b$")
+                || encodedPassword.startsWith("$2y$"));
     }
 }

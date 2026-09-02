@@ -6,7 +6,7 @@ import java.util.Locale;
 public record RoomId(String value) {
 
     private static final String ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    private static final int LENGTH = 4;
+    private static final int LENGTH = 8;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     public RoomId {
