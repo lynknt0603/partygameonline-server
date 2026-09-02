@@ -13,6 +13,7 @@ import com.partygameonline.ranking.api.dto.RankingResponse;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
+import com.partygameonline.user.infrastructure.UserEntity;
 import com.partygameonline.user.infrastructure.UserJpaRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -135,9 +137,10 @@ public class RankingService {
         }
 
         List<String> playerIds = statistics.stream().map(UserGameStatisticEntity::getUserId).toList();
-        Map<String, String> displayNames = displayNames(playerIds);
-        Map<String, String> usernames = usernames(playerIds);
-        Map<String, String> avatarUrls = avatarUrls(playerIds);
+        Map<String, UserEntity> users = usersByIdentifier(playerIds);
+        Map<String, String> displayNames = displayNames(playerIds, users);
+        Map<String, String> usernames = usernames(users);
+        Map<String, String> avatarUrls = avatarUrls(playerIds, users);
         Map<String, BloodlineSummary> bloodlineSummaries = nobRanking
                 ? bloodlineSummaries(playerIds)
                 : Map.of();
@@ -201,36 +204,62 @@ public class RankingService {
         );
     }
 
-    private Map<String, String> displayNames(List<String> playerIds) {
+    private Map<String, String> displayNames(List<String> playerIds, Map<String, UserEntity> users) {
         Map<String, String> result = new HashMap<>();
         matchPlayerRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(playerIds)
                 .forEach(player -> result.putIfAbsent(player.getPlayerId(), player.getDisplayName()));
+        users.forEach((identifier, user) -> result.put(identifier, user.getDisplayName()));
         playerIds.forEach(playerId -> result.putIfAbsent(playerId, playerId));
         return result;
     }
 
-    private Map<String, String> usernames(List<String> playerIds) {
-        if (userRepository == null) {
-            return Map.of();
-        }
+    private Map<String, String> usernames(Map<String, UserEntity> users) {
         Map<String, String> result = new HashMap<>();
-        userRepository.findByUserKeyIn(playerIds).forEach(user -> {
+        users.forEach((identifier, user) -> {
             if (user.getUsername() != null && !user.getUsername().isBlank()) {
-                result.put(user.getUserKey(), user.getUsername());
+                result.put(identifier, user.getUsername());
             }
         });
         return result;
     }
 
-    private Map<String, String> avatarUrls(List<String> playerIds) {
+    private Map<String, String> avatarUrls(List<String> playerIds, Map<String, UserEntity> users) {
         Map<String, String> result = new HashMap<>();
         playerIds.forEach(playerId -> result.put(playerId, AvatarCatalog.DEFAULT_URL));
-        if (userRepository != null) {
-            userRepository.findByUserKeyIn(playerIds).forEach(user ->
-                    result.put(user.getUserKey(), AvatarCatalog.urlForKey(user.getAvatarKey()))
-            );
+        users.forEach((identifier, user) ->
+                result.put(identifier, AvatarCatalog.urlForKey(user.getAvatarKey()))
+        );
+        return result;
+    }
+
+    private Map<String, UserEntity> usersByIdentifier(List<String> playerIds) {
+        if (userRepository == null) {
+            return Map.of();
+        }
+        Map<String, UserEntity> result = new HashMap<>();
+        userRepository.findByUserKeyIn(playerIds).forEach(user -> indexUser(result, user));
+
+        List<UUID> databaseIds = playerIds.stream()
+                .map(RankingService::parseUuid)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!databaseIds.isEmpty()) {
+            userRepository.findAllById(databaseIds).forEach(user -> indexUser(result, user));
         }
         return result;
+    }
+
+    private static void indexUser(Map<String, UserEntity> users, UserEntity user) {
+        users.put(user.getUserKey(), user);
+        users.put(user.getId().toString(), user);
+    }
+
+    private static UUID parseUuid(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private Map<String, BloodlineSummary> bloodlineSummaries(List<String> playerIds) {

@@ -235,10 +235,10 @@ class EloRatingServiceTests {
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
-        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
-        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-50);
-        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(17);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-17);
     }
 
     @Test
@@ -256,10 +256,10 @@ class EloRatingServiceTests {
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
-        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
-        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-50);
-        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(17);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-17);
     }
 
     @Test
@@ -298,12 +298,12 @@ class EloRatingServiceTests {
                 Map.of()
         );
 
-        assertThat(result.changes().get("A").eloDelta()).isEqualTo(20);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(7);
         assertThat(result.changes().get("B").eloDelta()).isZero();
     }
 
     @Test
-    void finalRatingsCommitTheAccumulatedRankedRoundDeltasWithoutWinnerInflation() {
+    void finalRatingsCommitRoundDeltasAndAddTheFiftyPointMatchSettlement() {
         UserGameStatisticEntity winner = UserGameStatisticEntity.newStatistic("A", "night-of-bloodlines");
         UserGameStatisticEntity loser = UserGameStatisticEntity.newStatistic("B", "night-of-bloodlines");
         when(serviceRepository().findByUserIdAndGameCodeForUpdate("A", "night-of-bloodlines"))
@@ -316,8 +316,8 @@ class EloRatingServiceTests {
         state.getPlayers().add(new NobPlayerState("B", "B", 1));
         state.recordCompletedRound(new NobRoundResult("VAMPIRE", "VAMPIRE", false), List.of("A"));
         state.recordRoundEloChanges(1, Map.of(
-                "A", new NobEloChange(5000, 50, 5050),
-                "B", new NobEloChange(5000, -50, 4950)
+                "A", new NobEloChange(5000, 17, 5017),
+                "B", new NobEloChange(5000, -17, 4983)
         ));
 
         EloRatingService.EloMatchResult result = service.completeNobMatch(
@@ -326,12 +326,52 @@ class EloRatingServiceTests {
                 state
         );
 
-        assertThat(winner.getElo()).isEqualTo(5050);
-        assertThat(loser.getElo()).isEqualTo(4950);
+        assertThat(winner.getElo()).isEqualTo(5067);
+        assertThat(loser.getElo()).isEqualTo(4933);
         assertThat(winner.getTotalMatch()).isEqualTo(1);
         assertThat(winner.getTotalWin()).isEqualTo(1);
+        assertThat(result.changes().get("A").eloDelta()).isEqualTo(67);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-67);
+    }
+
+    @Test
+    void nobFinalRewardIsFiftyAndTheOtherPlayersShareTheExactLoss() {
+        List<String> playerIds = List.of("A", "B", "C", "D");
+        Map<String, UserGameStatisticEntity> statistics = new java.util.LinkedHashMap<>();
+        for (String playerId : playerIds) {
+            UserGameStatisticEntity statistic = UserGameStatisticEntity.newStatistic(
+                    playerId,
+                    "night-of-bloodlines"
+            );
+            statistics.put(playerId, statistic);
+            when(repository.findByUserIdAndGameCodeForUpdate(playerId, "night-of-bloodlines"))
+                    .thenReturn(Optional.of(statistic));
+        }
+
+        NobGameState state = new NobGameState("ABCD");
+        playerIds.forEach(playerId -> state.getPlayers().add(
+                new NobPlayerState(playerId, playerId, state.getPlayers().size())
+        ));
+        state.recordCompletedRound(new NobRoundResult("VAMPIRE", "VAMPIRE", false), List.of("A"));
+        state.recordRoundEloChanges(1, Map.of(
+                "A", new NobEloChange(5000, 0, 5000),
+                "B", new NobEloChange(5000, 0, 5000),
+                "C", new NobEloChange(5000, 0, 5000),
+                "D", new NobEloChange(5000, 0, 5000)
+        ));
+
+        EloRatingService.EloMatchResult result = service.completeNobMatch(
+                playerIds,
+                Set.of("A"),
+                state
+        );
+
         assertThat(result.changes().get("A").eloDelta()).isEqualTo(50);
-        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-50);
+        assertThat(result.changes().get("B").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("C").eloDelta()).isEqualTo(-17);
+        assertThat(result.changes().get("D").eloDelta()).isEqualTo(-16);
+        assertThat(result.changes().values()).extracting(EloRatingService.EloChange::eloDelta)
+                .satisfies(deltas -> assertThat(deltas.stream().mapToInt(Integer::intValue).sum()).isZero());
     }
 
     private void mockDefaultRatings(String... playerIds) {

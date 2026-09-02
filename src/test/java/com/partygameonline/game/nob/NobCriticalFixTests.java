@@ -72,8 +72,7 @@ class NobCriticalFixTests {
         state.startNextRound(new com.partygameonline.game.core.SeededRandomSource(2));
         assertThat(state.getLastRoundResult()).isNull();
         assertThat(state.getRoundNumber()).isEqualTo(2);
-        assertThat(state.getPublicLog()).extracting(com.partygameonline.game.nob.domain.NobPublicLogEntry::type)
-                .containsExactly("NOB_ROUND_STARTED");
+        assertThat(state.getPublicLog()).isEmpty();
         assertThat(state.getPlayers()).allMatch(player -> player.getObservations().isEmpty());
         assertThat(state.getPlayers()).allMatch(player -> player.getInspectReveal() == null);
     }

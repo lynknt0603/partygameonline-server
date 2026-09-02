@@ -14,6 +14,8 @@ import com.partygameonline.ranking.api.dto.RankingResponse;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
+import com.partygameonline.user.infrastructure.UserEntity;
+import com.partygameonline.user.infrastructure.UserJpaRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -35,8 +37,47 @@ class RankingServiceTests {
     @Mock
     private NobGameRoundJpaRepository roundRepository;
 
+    @Mock
+    private UserJpaRepository userRepository;
+
     @InjectMocks
     private RankingService rankingService;
+
+    @Test
+    void resolvesLegacyDatabaseUserIdToAccountIdentity() {
+        UUID databaseId = UUID.randomUUID();
+        String legacyPlayerId = databaseId.toString();
+        String userKey = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        UserEntity user = new UserEntity(
+                databaseId,
+                "Blood Moon",
+                "lynknt01",
+                "encrypted",
+                userKey,
+                "vampire.png",
+                now,
+                now
+        );
+        UserGameStatisticEntity statistic = statistic(legacyPlayerId, 250);
+        when(statisticRepository.findByGameCode(NobGameManifest.ID)).thenReturn(List.of(statistic));
+        when(userRepository.findAllById(List.of(databaseId))).thenReturn(List.of(user));
+
+        RankingResponse response = rankingService.getRanking(
+                NobGameManifest.ID,
+                "highestElo",
+                null,
+                0,
+                7,
+                null
+        );
+
+        assertThat(response.podium()).singleElement().satisfies(entry -> {
+            assertThat(entry.username()).isEqualTo("lynknt01");
+            assertThat(entry.displayName()).isEqualTo("Blood Moon");
+            assertThat(entry.avatarUrl()).endsWith("/vampire.png");
+        });
+    }
 
     @Test
     void ranksByHighestEloAndKeepsCurrentPlayerRank() {
