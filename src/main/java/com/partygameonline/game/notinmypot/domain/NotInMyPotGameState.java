@@ -37,6 +37,8 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
     private final Map<String, NotInMyPotRole> roles = new LinkedHashMap<>();
     private final Map<String, NotInMyPotRole> publicRoles = new LinkedHashMap<>();
     private final Map<String, Integer> doorCountByPlayer = new LinkedHashMap<>();
+    private final Map<String, Map<NotInMyPotIngredientType, Integer>> ingredientPlayCount = new LinkedHashMap<>();
+    private final Map<String, Integer> potRevealCount = new LinkedHashMap<>();
     private final List<NotInMyPotEvent> publicEvents = new ArrayList<>();
     private final Set<String> processedCommandIds = new LinkedHashSet<>();
     private final List<String> winnerPlayerIds = new ArrayList<>();
@@ -345,6 +347,23 @@ public class NotInMyPotGameState implements GameOutcomeState, GameEloChangeSink 
 
     public Map<String, GameEloChange> getEloChanges() {
         return Map.copyOf(eloChanges);
+    }
+
+    public void recordIngredientPlayed(String playerId, NotInMyPotIngredientType type) {
+        ingredientPlayCount.computeIfAbsent(playerId, ignored -> new LinkedHashMap<>())
+                .merge(type, 1, Integer::sum);
+    }
+
+    public int ingredientPlayCount(String playerId, NotInMyPotIngredientType type) {
+        return ingredientPlayCount.getOrDefault(playerId, Map.of()).getOrDefault(type, 0);
+    }
+
+    public void recordPotReveal(String playerId) {
+        potRevealCount.merge(playerId, 1, Integer::sum);
+    }
+
+    public int potRevealCount(String playerId) {
+        return potRevealCount.getOrDefault(playerId, 0);
     }
 
     @Override

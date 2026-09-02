@@ -30,6 +30,8 @@ class FlywayMigrationTests {
         assertThat(tableExists("user_game_statistic")).isTrue();
         assertThat(tableExists("nob_game_session")).isTrue();
         assertThat(tableExists("nob_game_event")).isTrue();
+        assertThat(tableExists("user_achievement")).isTrue();
+        assertThat(tableExists("user_avatar_unlock")).isTrue();
     }
 
     private boolean tableExists(String tableName) {

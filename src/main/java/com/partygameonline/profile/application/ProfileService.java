@@ -11,6 +11,7 @@ import com.partygameonline.user.infrastructure.UserJpaRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -23,11 +24,22 @@ public class ProfileService {
 
     private final UserJpaRepository userRepository;
     private final RoomService roomService;
+    private final PlayerProgressService playerProgressService;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     public ProfileService(UserJpaRepository userRepository, RoomService roomService) {
+        this(userRepository, roomService, null);
+    }
+
+    @Autowired
+    public ProfileService(
+            UserJpaRepository userRepository,
+            RoomService roomService,
+            PlayerProgressService playerProgressService
+    ) {
         this.userRepository = userRepository;
         this.roomService = roomService;
+        this.playerProgressService = playerProgressService;
     }
 
     @Transactional
@@ -70,18 +82,24 @@ public class ProfileService {
                     "Only member accounts can select an avatar"
             );
         }
-        if (!AvatarCatalog.isSelectable(requestedAvatarKey)) {
+        if (!AvatarCatalog.isKnown(requestedAvatarKey)) {
             throw new ApiException("INVALID_AVATAR", HttpStatus.BAD_REQUEST, "Avatar is not available");
         }
 
-        String avatarKey = AvatarCatalog.normalizeKey(requestedAvatarKey);
+        String avatarKey = requestedAvatarKey.trim();
         UserEntity user = userRepository.findByUserKey(current.playerId())
                 .orElseThrow(() -> new ApiException(
                         "PROFILE_NOT_FOUND", HttpStatus.NOT_FOUND, "Player profile was not found"
                 ));
+        boolean unlocked = AvatarCatalog.freeKeys().contains(avatarKey)
+                || (playerProgressService != null
+                && playerProgressService.memberProgress(user).avatarSources().containsKey(avatarKey));
+        if (!unlocked) {
+            throw new ApiException("INVALID_AVATAR", HttpStatus.BAD_REQUEST, "Unlock this avatar first");
+        }
         user.selectAvatar(avatarKey);
 
-        PlayerPrincipal updated = current.withAvatarUrl(AvatarCatalog.urlForKey(avatarKey));
+        PlayerPrincipal updated = current.withAvatarUrl(AvatarCatalog.url(avatarKey));
         saveSecurityContext(updated, request, response);
         roomService.syncPlayerAvatar(updated.playerId(), updated.avatarUrl());
         return updated;

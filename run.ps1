@@ -3,7 +3,12 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 $pgCtl = "C:\Users\Admin\tools\pgsql\bin\pg_ctl.exe"
 $pgData = "C:\Users\Admin\tools\pgsql\data"
-if (Test-Path $pgCtl) {
+$postgresPortOpen = $null -ne (Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -First 1)
+
+if ($postgresPortOpen) {
+    Write-Host "[run.ps1] PostgreSQL is already listening on port 5432." -ForegroundColor DarkGray
+} elseif (Test-Path $pgCtl) {
     & $pgCtl -D $pgData status 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[run.ps1] Starting PostgreSQL service..." -ForegroundColor Cyan

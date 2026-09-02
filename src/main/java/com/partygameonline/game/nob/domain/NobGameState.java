@@ -431,7 +431,6 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
         Instant now = Instant.now();
         windowStartedAt = now;
         setPhaseDeadline(now.plusSeconds(timing.roundSummarySeconds()));
-        log("NOB_ROUND_SUMMARY", "Round summary");
     }
 
     public boolean isFinished() {
@@ -895,7 +894,6 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
         moonPicksTaken.clear();
         assignBloodlines(random);
         dealDraft(random);
-        log("NOB_ROUND_STARTED", "Round " + roundNumber + " started");
     }
 
     public static Instant nowPlusSeconds(int seconds) {

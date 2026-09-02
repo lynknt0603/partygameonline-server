@@ -68,7 +68,6 @@ public class NobGameEngine implements GameEngine<NobGameState, NobAction, NobEve
         state.assignBloodlines(random);
         state.dealDraft(random);
         state.log("NOB_GAME_STARTED", "Night of Bloodlines started");
-        state.log("NOB_ROUND_STARTED", "Round 1 started");
         persist(state, List.of(NobEvent.of("NOB_GAME_STARTED"), NobEvent.of("NOB_ROUND_STARTED")));
         return state;
     }
