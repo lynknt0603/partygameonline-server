@@ -19,17 +19,17 @@ public class AesPasswordCipher {
     private static final int IV_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final int BCRYPT_STRENGTH = 12;
-    private static final String ONE_TIME_LEGACY_KEY = "DEV_AES_KEY";
     private final SecretKeySpec key;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(BCRYPT_STRENGTH);
 
     public AesPasswordCipher(@Value("${app.encryption.key}") String configuredKey) {
-        String migrationKey = configuredKey == null || configuredKey.isBlank()
-                ? ONE_TIME_LEGACY_KEY
-                : configuredKey;
+        if (configuredKey == null || configuredKey.isBlank()) {
+            this.key = null;
+            return;
+        }
         try {
             this.key = new SecretKeySpec(
-                    MessageDigest.getInstance("SHA-256").digest(migrationKey.getBytes(StandardCharsets.UTF_8)),
+                    MessageDigest.getInstance("SHA-256").digest(configuredKey.getBytes(StandardCharsets.UTF_8)),
                     "AES"
             );
         } catch (GeneralSecurityException exception) {
@@ -76,7 +76,7 @@ public class AesPasswordCipher {
     }
 
     Optional<String> decryptLegacy(String encodedPassword) {
-        if (encodedPassword == null || encodedPassword.isBlank() || isBcrypt(encodedPassword)) {
+        if (key == null || encodedPassword == null || encodedPassword.isBlank() || isBcrypt(encodedPassword)) {
             return Optional.empty();
         }
         try {

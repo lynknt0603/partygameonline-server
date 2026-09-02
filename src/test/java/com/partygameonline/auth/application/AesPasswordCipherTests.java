@@ -36,12 +36,13 @@ class AesPasswordCipherTests {
     }
 
     @Test
-    void blankProductionKeyCanMigrateRowsWrittenByThePreviousFallback() throws Exception {
-        AesPasswordCipher migrationCipher = new AesPasswordCipher("");
+    void explicitLegacyKeyCanMigrateOldRowsButBlankKeyCannot() throws Exception {
         String legacy = legacyEncrypt("DEV_AES_KEY", "Secret123!");
 
-        assertThat(migrationCipher.matches("Secret123!", legacy)).isTrue();
-        assertThat(migrationCipher.decryptLegacy(legacy)).contains("Secret123!");
+        assertThat(cipher.matches("Secret123!", legacy)).isTrue();
+        assertThat(cipher.decryptLegacy(legacy)).contains("Secret123!");
+        AesPasswordCipher withoutLegacyKey = new AesPasswordCipher("");
+        assertThat(withoutLegacyKey.matches("Secret123!", legacy)).isFalse();
     }
 
     private static String legacyEncrypt(String configuredKey, String rawPassword) throws Exception {

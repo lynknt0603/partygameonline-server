@@ -16,19 +16,25 @@ public record SecurityProperties(
 
     public record Cors(List<String> allowedOrigins) {
 
+        private static final String PRODUCTION_ORIGIN =
+                "https://partygameonline-platform-olbh8ixzt-linh-7808.vercel.app";
+
         public Cors {
             if (allowedOrigins == null) {
                 allowedOrigins = List.of();
             } else {
-                allowedOrigins = allowedOrigins.stream()
+                List<String> normalized = allowedOrigins.stream()
                         .flatMap((origin) -> java.util.Arrays.stream(origin.split(",")))
                         .map(String::trim)
                         .filter(origin -> !origin.isEmpty())
-                        // Credentialed browser requests must never use a
-                        // wildcard. Wildcards are ignored instead of being
-                        // reflected back as an arbitrary Origin.
                         .filter(origin -> !origin.contains("*"))
                         .toList();
+                boolean wildcardOnly = normalized.isEmpty() && allowedOrigins.stream()
+                        .anyMatch(origin -> origin != null && origin.contains("*"));
+                // Replace the legacy production wildcard with the one known
+                // SPA origin. Credentialed requests must never reflect an
+                // arbitrary Origin.
+                allowedOrigins = wildcardOnly ? List.of(PRODUCTION_ORIGIN) : normalized;
             }
         }
     }

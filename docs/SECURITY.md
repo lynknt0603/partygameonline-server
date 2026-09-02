@@ -25,7 +25,7 @@ See `contracts/rest/SECURITY.md`.
 
 ```text
 CORS_ALLOWED_ORIGINS   comma-separated; empty = same-origin only
-APP_ENCRYPTION_KEY     required long random secret (also decrypts legacy AES rows)
+APP_ENCRYPTION_KEY     temporary legacy AES migration key; not used by BCrypt rows
 COOKIE_SECURE          true in production HTTPS
 COOKIE_SAME_SITE       lax (default)
 DISCONNECT_GRACE       WebSocket disconnect grace (default 30s)

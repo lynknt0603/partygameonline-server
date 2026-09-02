@@ -60,7 +60,7 @@ games:
 
 app:
   encryption:
-    # Required in every environment; retained only to decrypt legacy AES rows.
+    # Optional after all legacy AES rows have been migrated to BCrypt.
     key: ${APP_ENCRYPTION_KEY:}
   security:
     cors:
