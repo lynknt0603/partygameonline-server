@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Build Stage: Su dung Maven 3.9 + Temurin JDK 21 Alpine
 # ==============================================================================
 FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
@@ -25,11 +25,7 @@ COPY --from=builder /app/target/*.jar app.jar
 
 USER appuser
 
-# Khoa chat RAM JVM cho Koyeb 512MB:
-# - Heap toi da 256MB
-# - Serial Garbage Collector tiet kiem RAM nhat
-# - Metaspace toi da 128MB
-ENV JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -Xss512k -XX:+UseSerialGC"
+# Development environment: Không giới hạn RAM, cho phép JVM tự do tận dụng RAM và GC đa luồng (G1GC)
 ENV SERVER_PORT=8080
 
 EXPOSE 8080
