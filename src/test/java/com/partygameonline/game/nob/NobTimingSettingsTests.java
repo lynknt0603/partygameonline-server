@@ -22,7 +22,7 @@ class NobTimingSettingsTests {
         assertThat(settings.phaseSubmitSeconds()).isEqualTo(30);
         assertThat(settings.reactionDecisionSeconds()).isEqualTo(10);
         assertThat(settings.resolutionCardDisplayMs()).isEqualTo(2500);
-        assertThat(settings.announcementDisplayMs()).isEqualTo(3000);
+        assertThat(settings.announcementDisplayMs()).isEqualTo(5000);
     }
 
     @Test
