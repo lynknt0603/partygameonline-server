@@ -324,6 +324,7 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
                 && !phaseDeadline.isAfter(now)
                 && (phase == NobPhase.DRAFT_PICK_1
                 || phase == NobPhase.DRAFT_PICK_2
+                || phaseState == NobPhaseState.PHASE_INTRO
                 || (phaseState == NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS && currentResolvingCard == null))) {
             return true;
         }
@@ -774,8 +775,22 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
     }
 
     public void beginNightPhase(NobPhase nightPhase) {
+        beginNightPhase(nightPhase, false);
+    }
+
+    /**
+     * Starts a night phase with a short server-authoritative intro window.
+     * During the intro no submissions are accepted and the action clock has
+     * not started yet; this keeps every client in sync without costing players
+     * part of their turn.
+     */
+    public void beginNightPhaseIntro(NobPhase nightPhase) {
+        beginNightPhase(nightPhase, true);
+    }
+
+    private void beginNightPhase(NobPhase nightPhase, boolean intro) {
         phase = nightPhase;
-        phaseState = NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS;
+        phaseState = intro ? NobPhaseState.PHASE_INTRO : NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS;
         phaseSubmissions.clear();
         resolutionQueue.clear();
         pendingDecision = null;
@@ -783,6 +798,18 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
         clearEchoShowcase();
         currentResolvingCard = null;
         currentActorPlayerId = null;
+        announcement = null;
+        presentationQueue.clear();
+        Instant now = Instant.now();
+        windowStartedAt = now;
+        setPhaseDeadline(intro
+                ? now.plusMillis(Math.max(timing.announcementDisplayMs(), 1))
+                : now.plusSeconds(getPhaseSubmitSeconds()));
+    }
+
+    public void beginPhaseSubmissions() {
+        phaseState = NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS;
+        phaseSubmissions.clear();
         Instant now = Instant.now();
         windowStartedAt = now;
         setPhaseDeadline(now.plusSeconds(getPhaseSubmitSeconds()));

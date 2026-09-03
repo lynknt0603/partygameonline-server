@@ -70,6 +70,8 @@ Each room-scoped message includes `payload.room` (`RoomResponse`). Game messages
 
 `night-of-bloodlines` uses the same envelope structure for all `NOB_*` action types and projected views. The projection is viewer-specific: it includes that player's hand, private bloodline observations, pending decisions, and Moon Mark values while exposing only public seats, counts, and reveals to other players.
 
+When a night role phase begins, `payload.view.phaseState` is `PHASE_INTRO` for the configured announcement window (3 seconds by default). The `deadline` is the end of this intro; submissions are rejected until the state changes to `WAITING_FOR_PHASE_SUBMISSIONS`, so the action timer starts only after the phase notice has finished.
+
 ## Not In My Pot! game view
 
 `not-in-my-pot` uses the same `GAME_ACTION` envelope for these engine commands:

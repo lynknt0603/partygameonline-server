@@ -1,6 +1,7 @@
 package com.partygameonline.game.nob.domain;
 
 public enum NobPhaseState {
+    PHASE_INTRO,
     WAITING_FOR_PHASE_SUBMISSIONS,
     RESOLVING_CARD,
     WAITING_FOR_TARGET,
