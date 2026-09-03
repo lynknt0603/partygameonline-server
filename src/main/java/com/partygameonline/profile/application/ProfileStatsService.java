@@ -1,6 +1,7 @@
 package com.partygameonline.profile.application;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
@@ -120,6 +121,7 @@ public class ProfileStatsService {
                     .orElse(null);
         boolean hasStatistic = statisticRepository != null && (
                 statisticRepository.findByUserIdAndGameCode(identifier, NobGameManifest.ID).isPresent()
+                        || statisticRepository.findByUserIdAndGameCode(identifier, NotInMyPotGameManifest.ID).isPresent()
                         || statisticRepository.findByUserIdAndGameCode(identifier, WheresTheBoneGameManifest.ID).isPresent()
         );
         if (latest != null || hasStatistic) {
@@ -248,9 +250,57 @@ public class ProfileStatsService {
                         elo,
                         highestElo
                 ),
+                notInMyPotStats(playerId),
                 boneStats,
                 achievementStats,
                 avatarStats
+        );
+    }
+
+    private ProfileStatsResponse.NotInMyPotStats notInMyPotStats(String playerId) {
+        UserGameStatisticEntity statistic = statisticRepository == null
+                ? null
+                : statisticRepository.findByUserIdAndGameCode(
+                        playerId,
+                        NotInMyPotGameManifest.ID
+                ).orElse(null);
+        List<MatchPlayerEntity> playerRows = playerRepository == null
+                ? List.of()
+                : playerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(
+                        NotInMyPotGameManifest.ID,
+                        List.of(playerId)
+                );
+
+        FactionCounter vegetarian = new FactionCounter();
+        FactionCounter meatEater = new FactionCounter();
+        long historyWins = 0;
+        for (MatchPlayerEntity player : playerRows) {
+            boolean won = "WIN".equalsIgnoreCase(player.getResult());
+            if (won) {
+                historyWins++;
+            }
+            FactionCounter faction = notInMyPotFactionCounter(player.getRole(), vegetarian, meatEater);
+            if (faction != null) {
+                faction.record(won);
+            }
+        }
+
+        long totalMatches = statistic == null ? playerRows.size() : statistic.getTotalMatch();
+        long matchesWon = statistic == null ? historyWins : statistic.getTotalWin();
+        int elo = statistic == null
+                ? UserGameStatisticEntity.DEFAULT_ELO
+                : statistic.getEloForGame();
+        int highestElo = statistic == null
+                ? UserGameStatisticEntity.DEFAULT_ELO
+                : statistic.getHighestEloForGame();
+        return new ProfileStatsResponse.NotInMyPotStats(
+                totalMatches,
+                matchesWon,
+                rate(matchesWon, totalMatches),
+                vegetarian.toResponse(),
+                meatEater.toResponse(),
+                elo,
+                highestElo
         );
     }
 
@@ -354,6 +404,21 @@ public class ProfileStatsService {
             case "VAMPIRE" -> vampire;
             case "WEREWOLF" -> werewolf;
             case "HALFBLOOD", "HALF_BLOOD", "SORCERESS" -> halfblood;
+            default -> null;
+        };
+    }
+
+    private static FactionCounter notInMyPotFactionCounter(
+            String role,
+            FactionCounter vegetarian,
+            FactionCounter meatEater
+    ) {
+        if (role == null) {
+            return null;
+        }
+        return switch (role.trim().toUpperCase(Locale.ROOT)) {
+            case "VEGETARIAN" -> vegetarian;
+            case "MEAT_EATER", "MEATEATER" -> meatEater;
             default -> null;
         };
     }

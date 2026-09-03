@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.wheresthebone.WheresTheBoneGameManifest;
@@ -12,6 +13,8 @@ import com.partygameonline.history.infrastructure.MatchJpaRepository;
 import com.partygameonline.history.infrastructure.MatchPlayerEntity;
 import com.partygameonline.history.infrastructure.MatchPlayerJpaRepository;
 import com.partygameonline.profile.api.dto.ProfileStatsResponse;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +38,9 @@ class ProfileStatsServiceTests {
 
     @Mock
     private NobGameRoundJpaRepository roundRepository;
+
+    @Mock
+    private UserGameStatisticJpaRepository statisticRepository;
 
     @InjectMocks
     private ProfileStatsService service;
@@ -145,6 +151,45 @@ class ProfileStatsServiceTests {
         assertThat(stats.boneThiefTeam()).isEqualTo(new ProfileStatsResponse.FactionStats(2, 1, 50.0));
     }
 
+    @Test
+    void returnsNotInMyPotStatsFromTheSameRatingAndFactionHistoryAsRanking() {
+        UserGameStatisticEntity statistic = UserGameStatisticEntity.newStatistic(
+                PLAYER_ID,
+                NotInMyPotGameManifest.ID
+        );
+        statistic.applyNotInMyPotRatingDelta(200);
+        statistic.completeMatch(true);
+        statistic.completeMatch(true);
+        statistic.completeMatch(false);
+        when(statisticRepository.findByUserIdAndGameCode(PLAYER_ID, NobGameManifest.ID))
+                .thenReturn(java.util.Optional.empty());
+        when(statisticRepository.findByUserIdAndGameCode(PLAYER_ID, NotInMyPotGameManifest.ID))
+                .thenReturn(java.util.Optional.of(statistic));
+        when(statisticRepository.findByUserIdAndGameCode(PLAYER_ID, WheresTheBoneGameManifest.ID))
+                .thenReturn(java.util.Optional.empty());
+        when(playerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(
+                NotInMyPotGameManifest.ID,
+                List.of(PLAYER_ID)
+        )).thenReturn(List.of(
+                notInMyPotPlayer("WIN", "VEGETARIAN"),
+                notInMyPotPlayer("LOSS", "VEGETARIAN"),
+                notInMyPotPlayer("WIN", "MEAT_EATER")
+        ));
+
+        ProfileStatsResponse.NotInMyPotStats stats = service.getStats(
+                new PlayerPrincipal(PLAYER_ID, "BloodMoon", com.partygameonline.session.domain.SessionKind.MEMBER,
+                        Instant.parse("2025-02-12T00:00:00Z"))
+        ).notInMyPotStats();
+
+        assertThat(stats.totalMatches()).isEqualTo(3);
+        assertThat(stats.matchesWon()).isEqualTo(2);
+        assertThat(stats.winRate()).isEqualTo(66.7);
+        assertThat(stats.elo()).isEqualTo(5200);
+        assertThat(stats.highestElo()).isEqualTo(5200);
+        assertThat(stats.vegetarian()).isEqualTo(new ProfileStatsResponse.FactionStats(2, 1, 50.0));
+        assertThat(stats.meatEater()).isEqualTo(new ProfileStatsResponse.FactionStats(1, 1, 100.0));
+    }
+
     private static MatchEntity match(String finishedAt) {
         return match(NobGameManifest.ID, finishedAt);
     }
@@ -178,6 +223,20 @@ class ProfileStatsServiceTests {
     private static MatchPlayerEntity bonePlayer(MatchEntity match, String result, String role) {
         return MatchPlayerEntity.newPlayer(
                 match.getId(),
+                null,
+                PLAYER_ID,
+                "BloodMoon",
+                0,
+                result,
+                0,
+                role,
+                null
+        );
+    }
+
+    private static MatchPlayerEntity notInMyPotPlayer(String result, String role) {
+        return MatchPlayerEntity.newPlayer(
+                UUID.randomUUID(),
                 null,
                 PLAYER_ID,
                 "BloodMoon",
