@@ -8,10 +8,11 @@ import org.junit.jupiter.api.Test;
 class SecurityPropertiesTests {
 
     @Test
-    void replacesLegacyWildcardWithExactProductionOrigin() {
+    void replacesLegacyWildcardWithExactProductionOrigins() {
         SecurityProperties.Cors cors = new SecurityProperties.Cors(List.of("*"));
 
         assertThat(cors.allowedOrigins()).containsExactly(
+                "https://partygamefun-online.vercel.app",
                 "https://partygameonline-platform-olbh8ixzt-linh-7808.vercel.app"
         );
         assertThat(cors.allowedOrigins()).doesNotContain("https://evil.example", "*");
