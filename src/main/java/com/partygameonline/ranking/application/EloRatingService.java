@@ -150,7 +150,11 @@ public class EloRatingService {
         return result;
     }
 
-    /** Applies one game-specific forfeit and counts it as a completed loss. */
+    /**
+     * Applies one game-specific forfeit penalty without counting it as a
+     * completed match. Match totals are reserved for games that reached a
+     * valid terminal outcome and were persisted by MatchHistoryService.
+     */
     @Transactional
     public EloMatchResult applyForfeit(String gameCode, String playerId) {
         if (playerId == null || playerId.isBlank()) {
@@ -159,7 +163,7 @@ public class EloRatingService {
         Map<String, UserGameStatisticEntity> stats = loadLocked(gameCode, List.of(playerId));
         UserGameStatisticEntity statistic = stats.get(playerId);
         EloMatchResult result = policyFor(gameCode).calculateForfeit(playerId, statistic.getEloForGame());
-        applyResult(gameCode, stats, result, true);
+        applyResult(gameCode, stats, result, false);
         return result;
     }
 

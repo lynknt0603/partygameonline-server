@@ -119,7 +119,12 @@ public class RankingService {
         int pageNumber = page == null || page < 0 ? 0 : page;
         int pageSize = size == null ? DEFAULT_SIZE : Math.min(Math.max(size, 1), MAX_SIZE);
 
-        List<UserGameStatisticEntity> statistics = statisticRepository.findByGameCode(normalizedGame);
+        List<UserGameStatisticEntity> statistics = statisticRepository.findByGameCode(normalizedGame).stream()
+                // A standalone forfeit can change rating as an anti-abuse
+                // penalty, but it is not a completed game and must not create
+                // a misleading NOB leaderboard entry.
+                .filter(statistic -> !nobRanking || statistic.getTotalMatch() > 0)
+                .toList();
         if (statistics.isEmpty()) {
             return new RankingResponse(
                     normalizedGame,

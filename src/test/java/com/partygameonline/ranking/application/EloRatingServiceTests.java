@@ -127,7 +127,7 @@ class EloRatingServiceTests {
     }
 
     @Test
-    void notInMyPotForfeitAppliesLossWithoutRequiringAWinningTeam() {
+    void forfeitAppliesPenaltyWithoutCountingACompletedMatch() {
         UserGameStatisticEntity leaver = UserGameStatisticEntity.newStatistic(
                 "leaver",
                 NotInMyPotGameManifest.ID
@@ -142,7 +142,7 @@ class EloRatingServiceTests {
 
         assertThat(result.changes().get("leaver").eloDelta()).isEqualTo(-100);
         assertThat(leaver.getEloNotInMyPot()).isEqualTo(4900);
-        assertThat(leaver.getTotalMatch()).isEqualTo(1);
+        assertThat(leaver.getTotalMatch()).isZero();
         assertThat(leaver.getTotalWin()).isZero();
         assertThat(leaver.getEloNob()).isEqualTo(UserGameStatisticEntity.DEFAULT_ELO);
     }
