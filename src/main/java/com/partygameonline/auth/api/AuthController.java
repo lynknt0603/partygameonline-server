@@ -4,9 +4,9 @@ import com.partygameonline.auth.api.dto.AuthRequest;
 import com.partygameonline.auth.api.dto.AuthResponse;
 import com.partygameonline.auth.api.dto.RegisterRequest;
 import com.partygameonline.auth.application.AuthService;
+import com.partygameonline.security.AuthTokenService;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,27 +20,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthTokenService tokens;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, AuthTokenService tokens) {
         this.authService = authService;
+        this.tokens = tokens;
     }
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest body,
-                                                 HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest body) {
         PlayerPrincipal principal = authService.register(
                 body.username(),
                 body.password(),
-                body.displayName(),
-                request,
-                response
+                body.displayName()
         );
-        return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.from(principal));
+        return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse.from(principal, tokens.issue(principal)));
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody AuthRequest body,
-                              HttpServletRequest request, HttpServletResponse response) {
-        return AuthResponse.from(authService.login(body.username(), body.password(), request, response));
+    public AuthResponse login(@Valid @RequestBody AuthRequest body, HttpServletRequest request) {
+        PlayerPrincipal principal = authService.login(body.username(), body.password(), request);
+        return AuthResponse.from(principal, tokens.issue(principal));
     }
 }

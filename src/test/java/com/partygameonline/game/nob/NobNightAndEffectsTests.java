@@ -476,6 +476,11 @@ class NobNightAndEffectsTests {
         assertThat(state.getPhaseState()).isEqualTo(NobPhaseState.RESOLUTION_RESULT_DISPLAY);
         NobTestSupport.flushPresentation(state);
         assertThat(state.getPhase()).isEqualTo(NobPhase.FERAL_KILLER);
+        assertThat(state.getPhaseState()).isEqualTo(NobPhaseState.PHASE_INTRO);
+        state.setPhaseDeadline(java.time.Instant.now().minusSeconds(1));
+        NobTestSupport.apply(state, "p1", new NobAction(
+                NobAction.TIMEOUT, "phase-intro-timeout", null, null, null, List.of(), null
+        ));
         assertThat(state.getPhaseState()).isEqualTo(NobPhaseState.WAITING_FOR_PHASE_SUBMISSIONS);
         assertThat(state.player("p1").getHand()).extracting(NobCardInstance::cardCode).contains("NOB-FK-06");
         assertThat(state.getCurrentResolvingCard()).isNull();

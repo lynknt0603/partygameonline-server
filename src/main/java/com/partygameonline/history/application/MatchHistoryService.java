@@ -115,16 +115,18 @@ public class MatchHistoryService {
                 return;
             }
             recordDisconnectedNotInMyPotForfeits(room, session);
+            boolean unrankedForfeit = isUnrankedForfeit(session);
             Instant finishedAt = session.getFinishedAt() == null ? Instant.now() : session.getFinishedAt();
             MatchEntity match = matchJpaRepository.save(MatchEntity.completed(
                     session.getGameId(),
                     room.getId().value(),
-                    session.getWinnerPlayerId(),
-                    session.getResult() == null ? "COMPLETED" : session.getResult(),
+                    unrankedForfeit ? null : session.getWinnerPlayerId(),
+                    unrankedForfeit ? "UNRANKED_FORFEIT"
+                            : session.getResult() == null ? "COMPLETED" : session.getResult(),
                     session.getStartedAt(),
                     finishedAt
             ));
-            Set<String> winners = winners(session);
+            Set<String> winners = unrankedForfeit ? Set.of() : winners(session);
             List<String> participantIds = persistedParticipantIds(room, session);
             for (int seat = 0; seat < participantIds.size(); seat++) {
                 String playerId = participantIds.get(seat);
@@ -148,7 +150,7 @@ public class MatchHistoryService {
             }
             persistNobRounds(match.getId(), session);
             applyElo(match, session, winners);
-            if (playerProgressService != null) {
+            if (playerProgressService != null && !unrankedForfeit) {
                 playerProgressService.recordFinishedGame(session.getState(), winners, participantIds);
             }
             session.markPersisted(match.getId());
@@ -229,7 +231,15 @@ public class MatchHistoryService {
                 : session.getConfig().playerIds().stream()
                         .filter(playerId -> !session.isForfeited(playerId))
                         .toList();
-        Set<String> eloWinners = effectiveEloWinners(session, playerIds, winners);
+        // A match with fewer than two eligible players is an unranked
+        // mass-forfeit result. Awarding a sole survivor a winner reward mints
+        // Elo and is trivially boostable with alternate accounts.
+        if (NotInMyPotGameManifest.ID.equals(session.getGameId()) && playerIds.size() < 2) {
+            match.markEloProcessed();
+            matchJpaRepository.save(match);
+            return;
+        }
+        Set<String> eloWinners = winners;
         if (wheresTheBone && !validWheresTheBoneOutcome(match, session, winners, playerIds)) {
             match.markEloProcessed();
             matchJpaRepository.save(match);
@@ -262,23 +272,15 @@ public class MatchHistoryService {
         matchJpaRepository.save(match);
     }
 
-    private static Set<String> effectiveEloWinners(
-            GameSession session,
-            List<String> eligiblePlayerIds,
-            Set<String> gameWinners
-    ) {
-        if (NotInMyPotGameManifest.ID.equals(session.getGameId())
-                && eligiblePlayerIds.size() == 1
-                && session.getConfig().playerIds().size() > 1) {
-            String survivorId = eligiblePlayerIds.getFirst();
-            boolean everyoneElseForfeited = session.getConfig().playerIds().stream()
-                    .filter(playerId -> !playerId.equals(survivorId))
-                    .allMatch(session::isForfeited);
-            if (everyoneElseForfeited) {
-                return Set.of(survivorId);
-            }
+    private static boolean isUnrankedForfeit(GameSession session) {
+        if (!NotInMyPotGameManifest.ID.equals(session.getGameId())
+                || session.getConfig().playerIds().size() < 2) {
+            return false;
         }
-        return gameWinners;
+        long eligible = session.getConfig().playerIds().stream()
+                .filter(playerId -> !session.isForfeited(playerId))
+                .count();
+        return eligible < 2;
     }
 
     private static void recordEloChanges(GameSession session, EloRatingService.EloMatchResult result) {

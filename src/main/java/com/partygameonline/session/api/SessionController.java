@@ -2,12 +2,11 @@ package com.partygameonline.session.api;
 
 import com.partygameonline.room.application.RoomService;
 import com.partygameonline.room.infrastructure.RoomRepository;
+import com.partygameonline.security.AuthTokenService;
 import com.partygameonline.session.api.dto.CreateGuestSessionRequest;
 import com.partygameonline.session.api.dto.SessionResponse;
 import com.partygameonline.session.application.SessionService;
 import com.partygameonline.session.domain.PlayerPrincipal;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,27 +26,28 @@ public class SessionController {
     private final SessionService sessionService;
     private final RoomRepository roomRepository;
     private final RoomService roomService;
+    private final AuthTokenService tokens;
 
     public SessionController(
             SessionService sessionService,
             RoomRepository roomRepository,
-            RoomService roomService
+            RoomService roomService,
+            AuthTokenService tokens
     ) {
         this.sessionService = sessionService;
         this.roomRepository = roomRepository;
         this.roomService = roomService;
+        this.tokens = tokens;
     }
 
     @PostMapping("/guest")
     public ResponseEntity<SessionResponse> createGuest(
             @Valid @RequestBody CreateGuestSessionRequest request,
-            HttpServletRequest httpRequest,
-            HttpServletResponse httpResponse
+            @AuthenticationPrincipal(errorOnInvalidType = false) PlayerPrincipal current
     ) {
         PlayerPrincipal principal = sessionService.createOrRefreshGuest(
                 request.displayName(),
-                httpRequest,
-                httpResponse
+                current
         );
         roomService.syncPlayerDisplayName(principal.playerId(), principal.displayName());
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(principal));
@@ -60,14 +60,14 @@ public class SessionController {
 
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void terminate(HttpServletRequest request, HttpServletResponse response) {
-        sessionService.terminate(request, response);
+    public void terminate() {
+        // Stateless bearer tokens are terminated by deleting them on the client.
     }
 
     private SessionResponse toResponse(PlayerPrincipal principal) {
         String roomId = roomRepository.findByPlayerId(principal.playerId())
                 .map(room -> room.getId().value())
                 .orElse(null);
-        return SessionResponse.from(principal, roomId);
+        return SessionResponse.from(principal, roomId, tokens.issue(principal));
     }
 }

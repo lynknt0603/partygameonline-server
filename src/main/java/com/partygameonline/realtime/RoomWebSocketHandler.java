@@ -10,17 +10,19 @@ import com.partygameonline.room.domain.RoomPlayer;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.SubProtocolCapable;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-public class RoomWebSocketHandler extends TextWebSocketHandler {
+public class RoomWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
 
     private static final Logger log = LoggerFactory.getLogger(RoomWebSocketHandler.class);
 
@@ -32,6 +34,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
     private final DisconnectGraceService disconnectGraceService;
     private final RequestIdDeduper requestIdDeduper;
     private final RoomChatService roomChatService;
+    private final GameActionRateLimiter rateLimiter;
     private final JsonMapper jsonMapper;
 
     public RoomWebSocketHandler(
@@ -43,6 +46,7 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
             DisconnectGraceService disconnectGraceService,
             RequestIdDeduper requestIdDeduper,
             RoomChatService roomChatService,
+            GameActionRateLimiter rateLimiter,
             JsonMapper jsonMapper
     ) {
         this.hub = hub;
@@ -53,13 +57,26 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         this.disconnectGraceService = disconnectGraceService;
         this.requestIdDeduper = requestIdDeduper;
         this.roomChatService = roomChatService;
+        this.rateLimiter = rateLimiter;
         this.jsonMapper = jsonMapper;
+    }
+
+    @Override
+    public List<String> getSubProtocols() {
+        return List.of("boardverse");
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         PlayerPrincipal player = principal(session);
-        hub.register(player.playerId(), session);
+        if (!hub.register(player.playerId(), session)) {
+            try {
+                session.close(CloseStatus.POLICY_VIOLATION);
+            } catch (java.io.IOException ex) {
+                log.debug("Failed to close excess websocket sessionId={}", session.getId(), ex);
+            }
+            return;
+        }
         disconnectGraceService.cancel(player.playerId());
         WsServerEnvelope connected = WsServerEnvelope.of(
                 WsMessageTypes.CONNECTED,
@@ -74,6 +91,15 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        if (message.getPayloadLength() > 32_768) {
+            sendError(session, null, null, "MESSAGE_TOO_LARGE", "Message exceeds the allowed size");
+            try {
+                session.close(CloseStatus.POLICY_VIOLATION);
+            } catch (java.io.IOException ex) {
+                log.debug("Failed to close oversized websocket sessionId={}", session.getId(), ex);
+            }
+            return;
+        }
         PlayerPrincipal player = principal(session);
         WsClientEnvelope envelope;
         try {
@@ -165,6 +191,10 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         }
         if (room.findPlayer(player.playerId()).isEmpty()) {
             sendError(session, envelope.roomId(), envelope.requestId(), "NOT_ROOM_MEMBER", "You are not a member of this room");
+            return;
+        }
+        if (!rateLimiter.tryAcquire(player.playerId(), "ROOM_CHAT")) {
+            sendError(session, envelope.roomId(), envelope.requestId(), "RATE_LIMITED", "Too many messages; please slow down");
             return;
         }
         Object raw = envelope.payload() == null ? null : envelope.payload().get("text");

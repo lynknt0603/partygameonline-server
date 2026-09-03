@@ -136,7 +136,9 @@ public class GameActionDispatcher {
                     requestId,
                     applied.result().finished()
             );
-            realtimePublisher.gameEvents(room, requestId, player.playerId(), events, views);
+            if (!events.isEmpty()) {
+                realtimePublisher.gameEvents(room, requestId, player.playerId(), events, views);
+            }
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, requestId, applied.result().winnerPlayerId(), views);
                 roomService.recycleFinishedRoom(room);

@@ -42,7 +42,8 @@ public final class NotInMyPotRulesEngine {
         if (actor == null) {
             return ValidationResult.reject("NOT_IN_GAME", "You are not in this game");
         }
-        if (state.isDuplicateCommand(action.commandId())) {
+        if (!NotInMyPotAction.SET_PREFERRED_CARD.equals(normalized(action.type()))
+                && state.isDuplicateCommand(action.commandId())) {
             return ValidationResult.reject("DUPLICATE_REQUEST", "This request was already processed");
         }
         String type = normalized(action.type());
@@ -103,12 +104,15 @@ public final class NotInMyPotRulesEngine {
             NotInMyPotAction action,
             RandomSource random
     ) {
-        if (state.isDuplicateCommand(action.commandId())) {
+        String type = normalized(action.type());
+        if (!NotInMyPotAction.SET_PREFERRED_CARD.equals(type)
+                && state.isDuplicateCommand(action.commandId())) {
             return List.of();
         }
-        state.markCommandProcessed(action.commandId());
+        if (!NotInMyPotAction.SET_PREFERRED_CARD.equals(type)) {
+            state.markCommandProcessed(action.commandId());
+        }
         List<NotInMyPotEvent> events = new ArrayList<>();
-        String type = normalized(action.type());
         switch (type) {
             case NotInMyPotAction.SET_PREFERRED_CARD -> applyPreferredCard(state, actorId, action);
             case NotInMyPotAction.PLAY_INGREDIENT -> applyIngredient(state, actorId, action, events);

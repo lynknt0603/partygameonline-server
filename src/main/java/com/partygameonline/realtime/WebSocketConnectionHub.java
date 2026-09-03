@@ -17,12 +17,27 @@ public class WebSocketConnectionHub {
     public static final String PLAYER_ATTRIBUTE = "playerPrincipal";
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketConnectionHub.class);
+    static final int MAX_CONNECTIONS_PER_PLAYER = 2;
 
     private final ConcurrentHashMap<String, CopyOnWriteArraySet<WebSocketSession>> sessionsByPlayer =
             new ConcurrentHashMap<>();
 
-    public void register(String playerId, WebSocketSession session) {
-        sessionsByPlayer.computeIfAbsent(playerId, ignored -> new CopyOnWriteArraySet<>()).add(session);
+    public boolean register(String playerId, WebSocketSession session) {
+        if (playerId == null || session == null) {
+            return false;
+        }
+        java.util.concurrent.atomic.AtomicBoolean accepted = new java.util.concurrent.atomic.AtomicBoolean();
+        sessionsByPlayer.compute(playerId, (ignored, sessions) -> {
+            CopyOnWriteArraySet<WebSocketSession> next = sessions == null
+                    ? new CopyOnWriteArraySet<>()
+                    : sessions;
+            if (next.contains(session) || next.size() < MAX_CONNECTIONS_PER_PLAYER) {
+                next.add(session);
+                accepted.set(true);
+            }
+            return next;
+        });
+        return accepted.get();
     }
 
     public void unregister(WebSocketSession session) {

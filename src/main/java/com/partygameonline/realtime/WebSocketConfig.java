@@ -5,7 +5,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
-import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
 
 @Configuration
 @EnableWebSocket
@@ -28,7 +27,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         var registration = registry.addHandler(roomWebSocketHandler, "/ws")
-                .addInterceptors(new HttpSessionHandshakeInterceptor(), authHandshakeInterceptor);
+                // Legacy HttpSessionHandshakeInterceptor intentionally disabled:
+                // mobile browsers can block its cross-site session cookie.
+                .addInterceptors(authHandshakeInterceptor);
         if (!securityProperties.cors().allowedOrigins().isEmpty()) {
             registration.setAllowedOrigins(securityProperties.cors().allowedOrigins().toArray(String[]::new));
         }

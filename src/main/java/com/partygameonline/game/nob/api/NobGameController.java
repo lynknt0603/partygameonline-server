@@ -114,7 +114,9 @@ public class NobGameController {
             Map<String, Object> views = runtimeService.projectViews(room, session);
             List<Object> events = List.copyOf(applied.result().events());
             String requestId = request.commandId() == null ? UUID.randomUUID().toString() : request.commandId();
-            realtimePublisher.gameEvents(room, requestId, principal.playerId(), events, views);
+            if (!events.isEmpty()) {
+                realtimePublisher.gameEvents(room, requestId, principal.playerId(), events, views);
+            }
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, requestId, applied.result().winnerPlayerId(), views);
                 roomService.recycleFinishedRoom(room);

@@ -83,6 +83,14 @@ public class UserEntity {
         this.updatedAt = Instant.now();
     }
 
+    public void upgradePassword(String passwordHash) {
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException("Password hash must not be blank");
+        }
+        this.passwordAes = passwordHash;
+        this.updatedAt = Instant.now();
+    }
+
     public UUID getId() {
         return id;
     }

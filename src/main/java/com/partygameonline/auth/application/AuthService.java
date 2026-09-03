@@ -7,9 +7,9 @@ import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.user.infrastructure.UserEntity;
 import com.partygameonline.user.infrastructure.UserJpaRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,16 +20,27 @@ public class AuthService {
     private final UserJpaRepository users;
     private final AesPasswordCipher passwordCipher;
     private final SessionService sessions;
+    private final AuthRateLimiter authRateLimiter;
 
-    public AuthService(UserJpaRepository users, AesPasswordCipher passwordCipher, SessionService sessions) {
+    @Autowired
+    public AuthService(
+            UserJpaRepository users,
+            AesPasswordCipher passwordCipher,
+            SessionService sessions,
+            AuthRateLimiter authRateLimiter
+    ) {
         this.users = users;
         this.passwordCipher = passwordCipher;
         this.sessions = sessions;
+        this.authRateLimiter = authRateLimiter;
+    }
+
+    public AuthService(UserJpaRepository users, AesPasswordCipher passwordCipher, SessionService sessions) {
+        this(users, passwordCipher, sessions, new AuthRateLimiter());
     }
 
     @Transactional
-    public PlayerPrincipal register(String username, String password, String displayName,
-                                    HttpServletRequest request, HttpServletResponse response) {
+    public PlayerPrincipal register(String username, String password, String displayName) {
         String normalized = normalize(username);
         String normalizedDisplayName = displayName.trim();
         if (users.existsByUsername(normalized)) {
@@ -41,34 +52,42 @@ public class AuthService {
                     passwordCipher.encrypt(password),
                     normalizedDisplayName
             ));
-            return sessions.createMemberSession(
+            return sessions.createMember(
                     user.getUserKey(),
                     user.getDisplayName(),
                     user.getCreatedAt(),
-                    AvatarCatalog.urlForKey(user.getAvatarKey()),
-                    request,
-                    response
+                    AvatarCatalog.urlForKey(user.getAvatarKey())
             );
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
         }
     }
 
-    @Transactional(readOnly = true)
-    public PlayerPrincipal login(String username, String password,
-                                 HttpServletRequest request, HttpServletResponse response) {
+    @Transactional
+    public PlayerPrincipal login(String username, String password, HttpServletRequest request) {
+        if (!authRateLimiter.tryAcquire(request == null ? null : request.getRemoteAddr())) {
+            throw new ApiException(
+                    "AUTH_RATE_LIMITED", HttpStatus.TOO_MANY_REQUESTS, "Too many login attempts; please try again later"
+            );
+        }
         UserEntity user = users.findByUsername(normalize(username))
-                .filter(candidate -> passwordCipher.matches(password, candidate.getPasswordAes()))
                 .orElseThrow(() -> new ApiException(
                         "INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "Username or password is incorrect"
                 ));
-        return sessions.createMemberSession(
+        if (!passwordCipher.matches(password, user.getPasswordAes())) {
+            throw new ApiException(
+                    "INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "Username or password is incorrect"
+            );
+        }
+        if (passwordCipher.needsUpgrade(user.getPasswordAes())) {
+            user.upgradePassword(passwordCipher.encrypt(password));
+            users.save(user);
+        }
+        return sessions.createMember(
                 user.getUserKey(),
                 user.getDisplayName(),
                 user.getCreatedAt(),
-                AvatarCatalog.urlForKey(user.getAvatarKey()),
-                request,
-                response
+                AvatarCatalog.urlForKey(user.getAvatarKey())
         );
     }
 

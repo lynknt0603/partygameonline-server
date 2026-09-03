@@ -2,35 +2,34 @@
 
 Prefix: `/api/v1`. Successful responses are the resource DTO (no `{ code, message, data }` wrapper).
 
-Identity is always taken from the HTTP session. Request bodies that include `playerId` are ignored.
+Identity is always taken from the AES-GCM bearer token. Request bodies that include `playerId` are ignored.
 
-Auth and CSRF: `contracts/rest/SECURITY.md`.
+Authentication: `contracts/rest/SECURITY.md`.
 
 ## Endpoints
 
 | Method | Path | Auth | Success |
 | --- | --- | --- | --- |
-| GET | `/api/v1/csrf` | public | `CsrfTokenResponse` + `XSRF-TOKEN` cookie |
-| POST | `/api/v1/session/guest` | public + CSRF | 201 `SessionResponse` |
-| GET | `/api/v1/session/me` | session | 200 `SessionResponse` |
-| DELETE | `/api/v1/session` | session + CSRF | 204 |
+| POST | `/api/v1/session/guest` | public | 201 `SessionResponse` + `accessToken` |
+| GET | `/api/v1/session/me` | bearer | 200 `SessionResponse` + refreshed `accessToken` |
+| DELETE | `/api/v1/session` | bearer | 204; client deletes token |
 | GET | `/api/v1/games` | public | 200 `GameResponse[]` |
 | GET | `/api/v1/games/{gameId}` | public | 200 `GameResponse` |
-| GET | `/api/v1/rooms` | session | 200 public `WAITING` rooms |
-| POST | `/api/v1/rooms` | session + CSRF | 201 `RoomResponse` |
-| GET | `/api/v1/rooms/{roomId}` | session | 200 `RoomResponse` |
-| POST | `/api/v1/rooms/{roomId}/join` | session + CSRF | 200 `RoomResponse` |
-| POST | `/api/v1/rooms/{roomId}/leave` | session + CSRF | 204 |
-| PUT | `/api/v1/rooms/{roomId}/ready` | session + CSRF | 200 `RoomResponse` |
-| POST | `/api/v1/rooms/{roomId}/start` | session + CSRF | 200 `RoomResponse` |
-| PUT | `/api/v1/rooms/{roomId}/settings` | session + CSRF | 200 `RoomResponse` (host, WAITING; NOB/NIMP settings) |
-| GET | `/api/v1/matches` | session | 200 page of `MatchResponse` |
-| GET | `/api/v1/matches/{matchId}` | session | 200 `MatchResponse` |
-| GET | `/api/v1/profile/me/stats` | session | 200 `ProfileStatsResponse` |
-| PATCH | `/api/v1/profile/me` | session + CSRF | 200 `SessionResponse` |
-| GET | `/api/v1/profile/{usernameOrPlayerId}` | session | 200 public `ProfileStatsResponse` |
-| GET | `/api/v1/players/search?query=...&limit=20` | session | 200 `PlayerSearchResponse[]` |
-| GET | `/api/v1/rankings?gameId=night-of-bloodlines&sort=highestElo&bloodline=...` | session | 200 `RankingResponse` |
+| GET | `/api/v1/rooms` | bearer | 200 public `WAITING` rooms |
+| POST | `/api/v1/rooms` | bearer | 201 `RoomResponse` |
+| GET | `/api/v1/rooms/{roomId}` | bearer | 200 `RoomResponse` |
+| POST | `/api/v1/rooms/{roomId}/join` | bearer | 200 `RoomResponse` |
+| POST | `/api/v1/rooms/{roomId}/leave` | bearer | 204 |
+| PUT | `/api/v1/rooms/{roomId}/ready` | bearer | 200 `RoomResponse` |
+| POST | `/api/v1/rooms/{roomId}/start` | bearer | 200 `RoomResponse` |
+| PUT | `/api/v1/rooms/{roomId}/settings` | bearer | 200 `RoomResponse` (host, WAITING; NOB/NIMP settings) |
+| GET | `/api/v1/matches` | bearer | 200 page of `MatchResponse` |
+| GET | `/api/v1/matches/{matchId}` | bearer | 200 `MatchResponse` |
+| GET | `/api/v1/profile/me/stats` | bearer | 200 `ProfileStatsResponse` |
+| PATCH | `/api/v1/profile/me` | bearer | 200 `SessionResponse` + refreshed `accessToken` |
+| GET | `/api/v1/profile/{usernameOrPlayerId}` | bearer | 200 public `ProfileStatsResponse` |
+| GET | `/api/v1/players/search?query=...&limit=20` | bearer | 200 `PlayerSearchResponse[]` |
+| GET | `/api/v1/rankings?gameId=night-of-bloodlines&sort=highestElo&bloodline=...` | bearer | 200 `RankingResponse` |
 | GET | `/actuator/health` | public | `{ "status": "UP" }` |
 | GET | `/actuator/info` | public | `{ "app": { "name", "phase" } }` |
 
@@ -39,12 +38,12 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 ### SessionResponse
 
 ```json
-{ "playerId": "...", "displayName": "Linh", "kind": "GUEST", "currentRoomId": null }
+{ "playerId": "...", "displayName": "Linh", "kind": "GUEST", "currentRoomId": null, "accessToken": "pgo1..." }
 ```
 
 `currentRoomId` is the live room the player is seated in, or omitted/null when they are not in a room.
 
-`POST /session/guest` body: `{ "displayName": "Linh" }` (`1..32`). A second POST on an existing guest session keeps `playerId` and updates `displayName`. Member sessions are not downgraded to guests.
+`POST /session/guest` body: `{ "displayName": "Linh" }` (`1..32`). A second POST with the existing bearer token keeps `playerId` and updates `displayName`. Member tokens are not downgraded to guests.
 
 `PATCH /profile/me` body: `{ "displayName": "Linh Nguyen" }` (`1..32`). This updates the visible name in rooms and keeps the member's username and login session unchanged. `username` is the account login name; `displayName` is the name shown to other players.
 
@@ -56,7 +55,7 @@ Auth and CSRF: `contracts/rest/SECURITY.md`.
 
 The catalogue currently exposes Night of Bloodlines with `enabled: true`.
 
-NOB-specific REST (session + CSRF on POST):
+NOB-specific REST (bearer token required):
 
 | Method | Path | Success |
 | --- | --- | --- |

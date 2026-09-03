@@ -70,7 +70,8 @@ class RoomWebSocketHandlerTests {
                 roomService
         );
         handler = new RoomWebSocketHandler(
-                hub, publisher, roomService, dispatcher, runtime, grace, deduper, new RoomChatService(), jsonMapper);
+                hub, publisher, roomService, dispatcher, runtime, grace, deduper,
+                new RoomChatService(), new GameActionRateLimiter(), jsonMapper);
         attributes = new ConcurrentHashMap<>();
         attributes.put(WebSocketConnectionHub.PLAYER_ATTRIBUTE, PlayerPrincipal.guest("p1", "Linh"));
         when(session.getAttributes()).thenReturn(attributes);

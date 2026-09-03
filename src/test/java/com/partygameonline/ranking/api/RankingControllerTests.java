@@ -1,6 +1,7 @@
 package com.partygameonline.ranking.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
+import static com.partygameonline.testing.BearerTestSupport.guest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,8 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
@@ -35,15 +34,9 @@ class RankingControllerTests {
 
     @Test
     void emptyRankingIsSafeForAPlayerWithoutCompletedMatches() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"RankGuest\"}"))
-                .andExpect(status().isCreated());
+        String token = guest(mockMvc, "RankGuest").token();
 
-        mockMvc.perform(get("/api/v1/rankings?sort=highestElo").session(session))
+        mockMvc.perform(get("/api/v1/rankings?sort=highestElo").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.gameId").value("night-of-bloodlines"))
                 .andExpect(jsonPath("$.sort").value("highestElo"))
@@ -56,16 +49,10 @@ class RankingControllerTests {
 
     @Test
     void notInMyPotHasASeparateRankingResponse() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"PotRank\"}"))
-                .andExpect(status().isCreated());
+        String token = guest(mockMvc, "PotRank").token();
 
         mockMvc.perform(get("/api/v1/rankings")
-                        .session(session)
+                        .with(bearer(token))
                         .param("gameId", "not-in-my-pot")
                         .param("sort", "highestElo"))
                 .andExpect(status().isOk())

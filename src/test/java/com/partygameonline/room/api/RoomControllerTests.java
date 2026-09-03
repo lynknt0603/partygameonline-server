@@ -1,7 +1,7 @@
 package com.partygameonline.room.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -21,7 +21,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -50,8 +49,7 @@ class RoomControllerTests {
         Guest fourth = guest("An");
 
         MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Linh's Room","maxPlayers":4,"visibility":"PUBLIC","playerId":"spoof"}
@@ -66,31 +64,27 @@ class RoomControllerTests {
 
         String roomId = read(created, "$.id");
 
-        mockMvc.perform(get("/api/v1/rooms").session(host.session))
+        mockMvc.perform(get("/api/v1/rooms").with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.hasItem(roomId)));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(joiner.session)
-                        .with(csrf()))
+                        .with(bearer(joiner.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(2));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(third.session)
-                        .with(csrf()))
+                        .with(bearer(third.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(3));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(fourth.session)
-                        .with(csrf()))
+                        .with(bearer(fourth.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(4));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ready\":true}"))
                 .andExpect(status().isOk())
@@ -98,40 +92,35 @@ class RoomControllerTests {
                         .value(org.hamcrest.Matchers.contains("READY")));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                        .session(joiner.session)
-                        .with(csrf())
+                        .with(bearer(joiner.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ready\":true}"))
                 .andExpect(status().isOk());
 
         for (Guest player : new Guest[] {third, fourth}) {
             mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                            .session(player.session)
-                            .with(csrf())
+                            .with(bearer(player.token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"ready\":true}"))
                     .andExpect(status().isOk());
         }
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start")
-                        .session(host.session)
-                        .with(csrf()))
+                        .with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_GAME"));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/leave")
-                        .session(joiner.session)
-                        .with(csrf()))
+                        .with(bearer(joiner.token)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(host.session))
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(3))
                 .andExpect(jsonPath("$.players[0].playerId").value(host.playerId));
 
         mockMvc.perform(post("/api/v1/rooms")
-                        .session(joiner.session)
-                        .with(csrf())
+                        .with(bearer(joiner.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Next table","visibility":"PUBLIC"}
@@ -143,8 +132,7 @@ class RoomControllerTests {
     void privateRoomIsHiddenFromPublicList() throws Exception {
         Guest host = guest("Linh");
         MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Secret","visibility":"PRIVATE"}
@@ -153,7 +141,7 @@ class RoomControllerTests {
                 .andReturn();
         String roomId = read(created, "$.id");
 
-        mockMvc.perform(get("/api/v1/rooms").session(host.session))
+        mockMvc.perform(get("/api/v1/rooms").with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.hasItem(roomId)
@@ -169,41 +157,34 @@ class RoomControllerTests {
         String roomId = createPublicRoom(host);
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start")
-                        .session(host.session)
-                        .with(csrf()))
+                        .with(bearer(host.token)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("NOT_ENOUGH_PLAYERS"));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(joiner.session)
-                        .with(csrf()))
+                        .with(bearer(joiner.token)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(third.session)
-                        .with(csrf()))
+                        .with(bearer(third.token)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(fourth.session)
-                        .with(csrf()))
+                        .with(bearer(fourth.token)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start")
-                        .session(joiner.session)
-                        .with(csrf()))
+                        .with(bearer(joiner.token)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("NOT_ROOM_HOST"));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ready\":true}"))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start")
-                        .session(host.session)
-                        .with(csrf()))
+                        .with(bearer(host.token)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("PLAYERS_NOT_READY"));
     }
@@ -212,8 +193,7 @@ class RoomControllerTests {
     void cannotCreateDisabledGameOrSecondRoom() throws Exception {
         Guest host = guest("Linh");
         mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"disabled-test-game","name":"Vampires"}
@@ -223,8 +203,7 @@ class RoomControllerTests {
 
         createPublicRoom(host);
         mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Another"}
@@ -238,8 +217,7 @@ class RoomControllerTests {
         Guest host = guest("Linh");
         Guest joiner = guest("Minh");
         MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"NOB","maxPlayers":4}
@@ -250,8 +228,7 @@ class RoomControllerTests {
         String roomId = read(created, "$.id");
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"nob":{"draftPickSeconds":45,"reactionDecisionSeconds":8}}
@@ -261,8 +238,7 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.settings.nob.reactionDecisionSeconds").value(8));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(joiner.session)
-                        .with(csrf())
+                        .with(bearer(joiner.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"nob":{"draftPickSeconds":15}}
@@ -276,8 +252,7 @@ class RoomControllerTests {
         Guest host = guest("Linh");
         Guest joiner = guest("Minh");
         MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"not-in-my-pot","name":"Kitchen","maxPlayers":4}
@@ -289,8 +264,7 @@ class RoomControllerTests {
         String roomId = read(created, "$.id");
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"notInMyPot":{"turnSeconds":45,"showActionHistory":false}}
@@ -301,8 +275,7 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.settings.locked").value(false));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"notInMyPot":{"turnSeconds":45,"showActionHistory":false},"locked":true}
@@ -311,12 +284,11 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.settings.locked").value(true));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(joiner.session)
-                        .with(csrf()))
+                        .with(bearer(joiner.token)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("ROOM_LOCKED"));
 
-        mockMvc.perform(get("/api/v1/rooms").session(joiner.session))
+        mockMvc.perform(get("/api/v1/rooms").with(bearer(joiner.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.hasItem(roomId)
@@ -331,8 +303,7 @@ class RoomControllerTests {
                 guest("P6"), guest("P7"), guest("P8")
         };
         String roomId = read(mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"wheres-the-bone","name":"Bone table","maxPlayers":8}
@@ -342,14 +313,12 @@ class RoomControllerTests {
 
         for (Guest player : players) {
             mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                            .session(player.session)
-                            .with(csrf()))
+                            .with(bearer(player.token)))
                     .andExpect(status().isOk());
         }
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxPlayers\":6}"))
                 .andExpect(status().isConflict())
@@ -357,14 +326,12 @@ class RoomControllerTests {
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("8")));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/kick/" + players[6].playerId)
-                        .session(host.session)
-                        .with(csrf()))
+                        .with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(7));
 
         mockMvc.perform(post("/api/v1/rooms")
-                        .session(players[6].session)
-                        .with(csrf())
+                        .with(bearer(players[6].token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Kicked player's new room","maxPlayers":4}
@@ -372,22 +339,19 @@ class RoomControllerTests {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxPlayers\":7}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.maxPlayers").value(7));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/kick/" + players[5].playerId)
-                        .session(host.session)
-                        .with(csrf()))
+                        .with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players.length()").value(6));
 
         mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxPlayers\":6}"))
                 .andExpect(status().isOk())
@@ -395,14 +359,12 @@ class RoomControllerTests {
 
         Guest extra = guest("Extra");
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(extra.session)
-                        .with(csrf()))
+                        .with(bearer(extra.token)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("ROOM_FULL"));
 
         mockMvc.perform(post("/api/v1/rooms/" + roomId + "/kick/" + players[1].playerId)
-                        .session(players[0].session)
-                        .with(csrf()))
+                        .with(bearer(players[0].token)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("NOT_ROOM_HOST"));
     }
@@ -415,24 +377,19 @@ class RoomControllerTests {
 
     @Test
     void guestCannotCreateOrEnterRoom() throws Exception {
-        MockHttpSession guestSession = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(guestSession)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Guest\"}"))
-                .andExpect(status().isCreated());
+        String guestToken = com.partygameonline.testing.BearerTestSupport
+                .guest(mockMvc, "Guest")
+                .token();
 
         mockMvc.perform(post("/api/v1/rooms")
-                        .session(guestSession)
-                        .with(csrf())
+                        .with(bearer(guestToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"gameId\":\"night-of-bloodlines\",\"name\":\"Guest room\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("MEMBER_LOGIN_REQUIRED"));
 
         String roomId = createPublicRoom(guest("Host"));
-        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(guestSession))
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).with(bearer(guestToken)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("MEMBER_LOGIN_REQUIRED"));
     }
@@ -459,7 +416,7 @@ class RoomControllerTests {
             int statusD = fourth.get(5, TimeUnit.SECONDS);
             assertThat(new int[] {statusA, statusB, statusC, statusD}).contains(200, 409);
 
-            mockMvc.perform(get("/api/v1/rooms/" + roomId).session(host.session))
+            mockMvc.perform(get("/api/v1/rooms/" + roomId).with(bearer(host.token)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.players.length()").value(4));
         } finally {
@@ -471,8 +428,7 @@ class RoomControllerTests {
         ready.countDown();
         ready.await(2, TimeUnit.SECONDS);
         return mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
-                        .session(guest.session)
-                        .with(csrf()))
+                        .with(bearer(guest.token)))
                 .andReturn()
                 .getResponse()
                 .getStatus();
@@ -480,8 +436,7 @@ class RoomControllerTests {
 
     private String createPublicRoom(Guest host) throws Exception {
         MvcResult created = mockMvc.perform(post("/api/v1/rooms")
-                        .session(host.session)
-                        .with(csrf())
+                        .with(bearer(host.token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"gameId":"night-of-bloodlines","name":"Linh's Room","maxPlayers":4,"visibility":"PUBLIC"}
@@ -492,22 +447,19 @@ class RoomControllerTests {
     }
 
     private Guest guest(String displayName) throws Exception {
-        MockHttpSession session = new MockHttpSession();
         String username = displayName.toLowerCase() + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         MvcResult created = mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"" + displayName + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
-        return new Guest(session, read(created, "$.playerId"));
+        return new Guest(read(created, "$.accessToken"), read(created, "$.playerId"));
     }
 
     private static String read(MvcResult result, String path) throws Exception {
         return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), path);
     }
 
-    private record Guest(MockHttpSession session, String playerId) {
+    private record Guest(String token, String playerId) {
     }
 }

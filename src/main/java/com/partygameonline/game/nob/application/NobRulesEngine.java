@@ -386,7 +386,7 @@ public final class NobRulesEngine {
         }
         state.getDraftHands().clear();
         state.getDraftPicks().clear();
-        state.beginNightPhase(NobPhase.SHADOW_STALKER);
+        state.beginNightPhaseIntro(NobPhase.SHADOW_STALKER);
         events.add(NobEvent.of("NOB_PHASE_CHANGED", Map.of("phase", NobPhase.SHADOW_STALKER.name())));
         if (state.playersWhoMustSubmit().isEmpty()) {
             advancePhase(state, random, events);
@@ -1461,7 +1461,7 @@ public final class NobRulesEngine {
             revealAndScore(state, random, events);
             return;
         }
-        state.beginNightPhase(next);
+        state.beginNightPhaseIntro(next);
         events.add(NobEvent.of("NOB_PHASE_CHANGED", Map.of("phase", next.name())));
         if (state.playersWhoMustSubmit().isEmpty()) {
             advancePhase(state, random, events);
@@ -1547,6 +1547,14 @@ public final class NobRulesEngine {
             }
             state.setResolutionDisplayExpiresAt(null);
             advanceResolution(state, random, events);
+            return;
+        }
+        if (state.getPhaseState() == NobPhaseState.PHASE_INTRO) {
+            state.beginPhaseSubmissions();
+            events.add(NobEvent.of("NOB_PHASE_INTRO_FINISHED", Map.of("phase", state.getPhase().name())));
+            if (state.playersWhoMustSubmit().isEmpty()) {
+                advancePhase(state, random, events);
+            }
             return;
         }
         if (state.getPhase() == NobPhase.ROUND_SUMMARY) {

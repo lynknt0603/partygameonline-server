@@ -119,7 +119,9 @@ public class WheresTheBoneGameController {
                 matchHistoryService.recordIfFinished(room, session);
             }
             Map<String, Object> views = runtimeService.projectViews(room, session);
-            realtimePublisher.gameEvents(room, commandId, principal.playerId(), List.copyOf(applied.result().events()), views);
+            if (!applied.result().events().isEmpty()) {
+                realtimePublisher.gameEvents(room, commandId, principal.playerId(), List.copyOf(applied.result().events()), views);
+            }
             if (applied.result().finished()) {
                 realtimePublisher.gameFinished(room, commandId, applied.result().winnerPlayerId(), views);
                 roomService.recycleFinishedRoom(room);
