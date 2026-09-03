@@ -6,6 +6,7 @@ import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.nob.api.dto.NobCommandRequest;
 import com.partygameonline.game.nob.api.dto.NobView;
+import com.partygameonline.game.nob.domain.NobGameState;
 import com.partygameonline.game.runtime.AppliedAction;
 import com.partygameonline.game.runtime.GameRuntimeService;
 import com.partygameonline.game.runtime.GameSession;
@@ -25,18 +26,26 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/games/nob/rooms")
 public class NobGameController {
+
+    private static final CacheControl SNAPSHOT_CACHE_CONTROL = CacheControl.noCache().cachePrivate();
 
     private final RoomService roomService;
     private final RoomRepository roomRepository;
@@ -72,15 +81,45 @@ public class NobGameController {
     }
 
     @GetMapping("/{roomId}/snapshot")
-    public NobView snapshot(
+    public ResponseEntity<NobView> snapshot(
             @AuthenticationPrincipal PlayerPrincipal principal,
-            @PathVariable String roomId
+            @PathVariable String roomId,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
     ) {
         return roomLocks.withRoom(RoomId.parse(roomId).value(), () -> {
             GameRoom room = requireNobRoom(roomId, principal);
             GameSession session = requireSession(room);
-            return (NobView) runtimeService.projectView(session, room.findPlayer(principal.playerId()).orElseThrow());
+            RoomPlayer viewer = room.findPlayer(principal.playerId()).orElseThrow(RoomException::notMember);
+            NobGameState state = (NobGameState) session.getState();
+            String etag = snapshotEtag(state.getVersion(), principal.playerId());
+            if (matchesEtag(ifNoneMatch, etag)) {
+                return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                        .cacheControl(SNAPSHOT_CACHE_CONTROL)
+                        .eTag(etag)
+                        .build();
+            }
+            NobView view = (NobView) runtimeService.projectView(session, viewer);
+            return ResponseEntity.ok()
+                    .cacheControl(SNAPSHOT_CACHE_CONTROL)
+                    .eTag(etag)
+                    .body(view);
         });
+    }
+
+    static String snapshotEtag(int version, String playerId) {
+        UUID viewerKey = UUID.nameUUIDFromBytes(playerId.getBytes(StandardCharsets.UTF_8));
+        return "\"nob-" + version + "-" + viewerKey + "\"";
+    }
+
+    static boolean matchesEtag(String ifNoneMatch, String currentEtag) {
+        if (ifNoneMatch == null || ifNoneMatch.isBlank()) {
+            return false;
+        }
+        return Arrays.stream(ifNoneMatch.split(","))
+                .map(String::trim)
+                .anyMatch(candidate -> candidate.equals("*")
+                        || candidate.equals(currentEtag)
+                        || candidate.equals("W/" + currentEtag));
     }
 
     @PostMapping("/{roomId}/command")
