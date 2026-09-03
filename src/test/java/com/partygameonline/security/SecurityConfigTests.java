@@ -46,9 +46,12 @@ class SecurityConfigTests {
     void allowedOriginCanPreflight() throws Exception {
         mockMvc.perform(options("/api/v1/session/me")
                         .header("Origin", "http://localhost:5173")
-                        .header("Access-Control-Request-Method", "GET"))
+                        .header("Access-Control-Request-Method", "GET")
+                        .header("Access-Control-Request-Headers", "If-None-Match"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Allow-Headers", "If-None-Match"))
+                .andExpect(header().string("Access-Control-Expose-Headers", "X-Request-Id, ETag"))
                 .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
     }
 
