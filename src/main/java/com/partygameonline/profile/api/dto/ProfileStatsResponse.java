@@ -5,6 +5,7 @@ import java.util.List;
 public record ProfileStatsResponse(
         Player player,
         NobStats nobStats,
+        NotInMyPotStats notInMyPotStats,
         WheresTheBoneStats wheresTheBoneStats,
         List<Achievement> achievements,
         List<Avatar> avatars
@@ -12,11 +13,11 @@ public record ProfileStatsResponse(
 
     /** Keeps the pre-Where's-the-Bone constructor source-compatible for callers that only expose NOB. */
     public ProfileStatsResponse(Player player, NobStats nobStats) {
-        this(player, nobStats, WheresTheBoneStats.empty(), List.of(), List.of());
+        this(player, nobStats, NotInMyPotStats.empty(), WheresTheBoneStats.empty(), List.of(), List.of());
     }
 
     public ProfileStatsResponse(Player player, NobStats nobStats, WheresTheBoneStats wheresTheBoneStats) {
-        this(player, nobStats, wheresTheBoneStats, List.of(), List.of());
+        this(player, nobStats, NotInMyPotStats.empty(), wheresTheBoneStats, List.of(), List.of());
     }
 
     public record Player(
@@ -48,6 +49,21 @@ public record ProfileStatsResponse(
             long matchesWon,
             double winRate
     ) {
+    }
+
+    public record NotInMyPotStats(
+            long totalMatches,
+            long matchesWon,
+            double winRate,
+            FactionStats vegetarian,
+            FactionStats meatEater,
+            int elo,
+            int highestElo
+    ) {
+        public static NotInMyPotStats empty() {
+            FactionStats emptyFaction = new FactionStats(0, 0, 0.0);
+            return new NotInMyPotStats(0, 0, 0.0, emptyFaction, emptyFaction, 5000, 5000);
+        }
     }
 
     public record Achievement(

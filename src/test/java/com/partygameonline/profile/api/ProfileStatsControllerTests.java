@@ -61,7 +61,14 @@ class ProfileStatsControllerTests {
                 .andExpect(jsonPath("$.nobStats.werewolf.winRate").value(0.0))
                 .andExpect(jsonPath("$.nobStats.halfblood.matchesPlayed").value(0))
                 .andExpect(jsonPath("$.nobStats.halfblood.matchesWon").value(0))
-                .andExpect(jsonPath("$.nobStats.halfblood.winRate").value(0.0));
+                .andExpect(jsonPath("$.nobStats.halfblood.winRate").value(0.0))
+                .andExpect(jsonPath("$.notInMyPotStats.totalMatches").value(0))
+                .andExpect(jsonPath("$.notInMyPotStats.matchesWon").value(0))
+                .andExpect(jsonPath("$.notInMyPotStats.winRate").value(0.0))
+                .andExpect(jsonPath("$.notInMyPotStats.elo").value(5000))
+                .andExpect(jsonPath("$.notInMyPotStats.highestElo").value(5000))
+                .andExpect(jsonPath("$.notInMyPotStats.vegetarian.matchesPlayed").value(0))
+                .andExpect(jsonPath("$.notInMyPotStats.meatEater.matchesPlayed").value(0));
 
         mockMvc.perform(get("/api/v1/matches/history?page=0&size=10").session(session))
                 .andExpect(status().isOk())
