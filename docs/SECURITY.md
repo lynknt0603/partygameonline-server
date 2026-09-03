@@ -1,49 +1,42 @@
 # Security (implemented)
 
-Server-side session authentication. CSRF stays on. No custom JWT in MVP.
+## Authentication
 
-## What exists
+- Stateless AES-256-GCM bearer tokens; no `HttpSession`, `PGOSESSION`, or
+  `XSRF-TOKEN` runtime flow.
+- The encryption key remains only in backend configuration.
+- Tokens contain authenticated player identity and an expiry, and AES-GCM
+  rejects any modified ciphertext.
+- Member tokens are resolved against the current database user on every
+  request, so deleted users and stale profile fields are not trusted.
+- Guest, registration, login, session, and profile responses return a refreshed
+  `accessToken`.
+- REST uses `Authorization: Bearer <token>`.
+- WebSocket uses subprotocols `boardverse` and `bearer.<token>` because browser
+  WebSocket APIs cannot set an Authorization header.
+- Logout deletes the token on the client. Tokens expire after the configured
+  TTL; immediate server-side revocation is not implemented.
 
-- Guest session in the HTTP session (`PGOSESSION`, HttpOnly)
-- `PlayerPrincipal` is the only authoritative identity
-- Client-supplied `playerId` is ignored on REST and WebSocket
-- Guests are **not** written to `users`
-- CSRF: session token; `GET /api/v1/csrf` returns `headerName` + `token` and sets readable `XSRF-TOKEN` cookie
-- CORS allow-list from `app.security.cors.allowed-origins` (never `*`)
-- WebSocket `/ws` handshake uses the same HTTP session; Origin is allow-listed
-- Registered passwords are BCrypt hashes; legacy AES rows are upgraded after a successful login
-- Game actions and room chat have per-player rate limits; each player may hold at most two WebSockets
-- JSON `401 UNAUTHENTICATED`, `403 FORBIDDEN` / `CSRF_REJECTED`
-- Actuator public surface is only `health` and `info`. `env` / `beans` / `configprops` are disabled
-- Errors never return Java exception messages, stack traces, SQL, or hidden hands
+## Other controls
 
-## Endpoints
+- Registered passwords are BCrypt hashes; legacy password AES rows are only
+  supported by the temporary migration key.
+- CORS is an exact allow-list and credentialed CORS is disabled.
+- Client-supplied player IDs are ignored.
+- Game actions and chat are rate-limited and validated server-side.
+- Only Actuator health/info are public.
+- Error responses do not expose stack traces, SQL, hidden hands, or deck order.
 
-See `contracts/rest/SECURITY.md`.
-
-## Config
+## Configuration
 
 ```text
-CORS_ALLOWED_ORIGINS   comma-separated; empty = same-origin only
-APP_ENCRYPTION_KEY     temporary legacy AES migration key; not used by BCrypt rows
-COOKIE_SECURE          true in production HTTPS
-COOKIE_SAME_SITE       lax (default)
+AUTH_TOKEN_KEY         required; unique random secret of at least 32 characters
+AUTH_TOKEN_TTL         token lifetime, 5m to 30d (default 24h)
+CORS_ALLOWED_ORIGINS   exact comma-separated SPA origins; never *
+APP_ENCRYPTION_KEY     temporary legacy password migration key only
 DISCONNECT_GRACE       WebSocket disconnect grace (default 30s)
 ```
 
-Dev profile allows `http://localhost:5173` and `http://127.0.0.1:5173`.
-
-## Production checklist
-
-1. Terminate TLS in front of the app. Set `COOKIE_SECURE=true`.
-2. Serve the SPA and API same-site (reverse proxy `/api` and `/ws`).
-3. Set `CORS_ALLOWED_ORIGINS` only if the browser is on another origin. Never `*`.
-4. Do not expose Actuator beyond `health`/`info` on the public network.
-5. Rotate the PostgreSQL password; do not commit credentials.
-6. Prefer PostgreSQL 14+ (Hibernate 7.4 warns on 13.x).
-7. Logs must not include cookies, session ids, CSRF tokens, hands, or deck order.
-8. Put a distributed IP/account rate limit in the edge proxy (Render/Cloudflare) for login and room creation; the app also throttles each login source to 20 attempts/minute.
-
-## Not implemented
-
-Registered login (`/api/v1/auth/*`), roles beyond the authenticated guest player.
+Production must keep `AUTH_TOKEN_KEY` stable across restarts. Rotating it logs
+out all players immediately. Never expose it through Vite variables or commit
+the production value.

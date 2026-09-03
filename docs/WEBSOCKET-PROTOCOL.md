@@ -1,13 +1,13 @@
 # WebSocket protocol (implemented)
 
-Raw JSON at `/ws`. No STOMP. The handshake uses the HTTP session cookie. The browser does not choose identity.
+Raw JSON at `/ws`. No STOMP. The handshake authenticates an encrypted bearer token. The browser does not choose identity.
 
 Frontend checklist: `contracts/websocket/PROTOCOL.md`. Error codes: `contracts/websocket/ERROR-CODES.md`.
 
 ## Connect
 
-1. Create a guest session over REST (`PGOSESSION` cookie)
-2. Open `ws://host/ws` with that cookie
+1. Obtain `accessToken` from the REST guest/register/login response
+2. Open `ws://host/ws` with subprotocols `["boardverse", "bearer.<accessToken>"]`
 3. Server sends `CONNECTED` with the authenticated `playerId`
 
 Unauthenticated handshakes are rejected. `Origin` is checked against `app.security.cors.allowed-origins` (never `*`).
@@ -115,7 +115,7 @@ recipient's `payload.view`. `commandId` is optional in the payload when the enve
 
 WebSocket close does **not** remove the seat. The player is marked `DISCONNECTED` and a grace timer starts (`app.realtime.disconnect-grace`, default 30s).
 
-A new `/ws` connection with the same session:
+A new `/ws` connection with the same bearer token:
 
 1. Cancels the grace timer
 2. Restores `CONNECTED` (lobby ready must be set again)

@@ -1,6 +1,6 @@
 package com.partygameonline.history.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -68,7 +67,7 @@ class MatchHistoryControllerTests {
                 MatchPlayerEntity.newPlayer(match.getId(), null, joiner.playerId, joiner.displayName, 1, "LOSS")
         );
 
-        MvcResult listed = mockMvc.perform(get("/api/v1/matches?page=0&size=20").session(host.session))
+        MvcResult listed = mockMvc.perform(get("/api/v1/matches?page=0&size=20").with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].gameId").value("night-of-bloodlines"))
@@ -81,40 +80,37 @@ class MatchHistoryControllerTests {
 
         String matchId = com.jayway.jsonpath.JsonPath.read(listed.getResponse().getContentAsString(), "$.content[0].id");
 
-        mockMvc.perform(get("/api/v1/matches/" + matchId).session(host.session))
+        mockMvc.perform(get("/api/v1/matches/" + matchId).with(bearer(host.token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(matchId))
                 .andExpect(jsonPath("$.winnerPlayerId").value(host.playerId));
 
         Guest stranger = guest("Other");
-        mockMvc.perform(get("/api/v1/matches/" + matchId).session(stranger.session))
+        mockMvc.perform(get("/api/v1/matches/" + matchId).with(bearer(stranger.token)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("MATCH_NOT_FOUND"));
     }
 
     @Test
-    void matchesRequireSession() throws Exception {
+    void matchesRequireBearerToken() throws Exception {
         mockMvc.perform(get("/api/v1/matches"))
                 .andExpect(status().isUnauthorized());
     }
 
     private Guest guest(String displayName) throws Exception {
-        MockHttpSession session = new MockHttpSession();
         String username = displayName.toLowerCase() + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         MvcResult created = mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"" + displayName + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
-        return new Guest(session, read(created, "$.playerId"), displayName);
+        return new Guest(read(created, "$.accessToken"), read(created, "$.playerId"), displayName);
     }
 
     private static String read(MvcResult result, String path) throws Exception {
         return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), path);
     }
 
-    private record Guest(MockHttpSession session, String playerId, String displayName) {
+    private record Guest(String token, String playerId, String displayName) {
     }
 }

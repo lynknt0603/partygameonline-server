@@ -1,17 +1,18 @@
 package com.partygameonline.security;
 
 import java.util.List;
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app.security")
 public record SecurityProperties(
         Cors cors,
-        Cookie cookie
+        Token token
 ) {
 
     public SecurityProperties {
         cors = cors == null ? new Cors(List.of()) : cors;
-        cookie = cookie == null ? new Cookie(false, "lax") : cookie;
+        token = token == null ? new Token("", Duration.ofHours(24)) : token;
     }
 
     public record Cors(List<String> allowedOrigins) {
@@ -41,11 +42,12 @@ public record SecurityProperties(
         }
     }
 
-    public record Cookie(boolean secure, String sameSite) {
+    public record Token(String secret, Duration ttl) {
 
-        public Cookie {
-            if (sameSite == null || sameSite.isBlank()) {
-                sameSite = "lax";
+        public Token {
+            secret = secret == null ? "" : secret.trim();
+            if (ttl == null) {
+                ttl = Duration.ofHours(24);
             }
         }
     }

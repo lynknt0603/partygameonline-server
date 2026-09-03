@@ -6,10 +6,9 @@ import com.partygameonline.profile.api.dto.UpdateDisplayNameRequest;
 import com.partygameonline.profile.application.ProfileService;
 import com.partygameonline.profile.application.ProfileStatsService;
 import com.partygameonline.room.infrastructure.RoomRepository;
+import com.partygameonline.security.AuthTokenService;
 import com.partygameonline.session.api.dto.SessionResponse;
 import com.partygameonline.session.domain.PlayerPrincipal;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,34 +24,33 @@ public class ProfileStatsController {
     private final ProfileStatsService profileStatsService;
     private final ProfileService profileService;
     private final RoomRepository roomRepository;
+    private final AuthTokenService tokens;
 
     public ProfileStatsController(
             ProfileStatsService profileStatsService,
             ProfileService profileService,
-            RoomRepository roomRepository
+            RoomRepository roomRepository,
+            AuthTokenService tokens
     ) {
         this.profileStatsService = profileStatsService;
         this.profileService = profileService;
         this.roomRepository = roomRepository;
+        this.tokens = tokens;
     }
 
     @PatchMapping
     public SessionResponse update(
             @AuthenticationPrincipal PlayerPrincipal principal,
-            @Valid @RequestBody UpdateDisplayNameRequest request,
-            HttpServletRequest httpRequest,
-            HttpServletResponse httpResponse
+            @Valid @RequestBody UpdateDisplayNameRequest request
     ) {
         PlayerPrincipal updated = profileService.updateDisplayName(
                 principal,
-                request.displayName(),
-                httpRequest,
-                httpResponse
+                request.displayName()
         );
         String roomId = roomRepository.findByPlayerId(updated.playerId())
                 .map(room -> room.getId().value())
                 .orElse(null);
-        return SessionResponse.from(updated, roomId);
+        return SessionResponse.from(updated, roomId, tokens.issue(updated));
     }
 
     @GetMapping("/stats")
@@ -63,19 +61,15 @@ public class ProfileStatsController {
     @PatchMapping("/avatar")
     public SessionResponse updateAvatar(
             @AuthenticationPrincipal PlayerPrincipal principal,
-            @Valid @RequestBody UpdateAvatarRequest request,
-            HttpServletRequest httpRequest,
-            HttpServletResponse httpResponse
+            @Valid @RequestBody UpdateAvatarRequest request
     ) {
         PlayerPrincipal updated = profileService.updateAvatar(
                 principal,
-                request.avatarKey(),
-                httpRequest,
-                httpResponse
+                request.avatarKey()
         );
         String roomId = roomRepository.findByPlayerId(updated.playerId())
                 .map(room -> room.getId().value())
                 .orElse(null);
-        return SessionResponse.from(updated, roomId);
+        return SessionResponse.from(updated, roomId, tokens.issue(updated));
     }
 }

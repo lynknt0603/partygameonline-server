@@ -1,8 +1,8 @@
 package com.partygameonline.user.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
+import static com.partygameonline.testing.BearerTestSupport.guest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,8 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,11 +45,11 @@ class PlayerSearchControllerTests {
     void searchesMemberByUsernameAndPlayerId() throws Exception {
         String username = "searchuser" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         UserEntity user = userRepository.saveAndFlush(UserEntity.newMember(username, "encrypted-password"));
-        MockHttpSession session = guestSession();
+        String token = guest(mockMvc, "Searcher").token();
 
         mockMvc.perform(get("/api/v1/players/search")
                         .param("query", username)
-                        .session(session))
+                        .with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].playerId").value(user.getUserKey()))
                 .andExpect(jsonPath("$[0].username").value(username))
@@ -59,7 +57,7 @@ class PlayerSearchControllerTests {
 
         mockMvc.perform(get("/api/v1/players/search")
                         .param("query", user.getUserKey())
-                        .session(session))
+                        .with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].playerId").value(user.getUserKey()))
                 .andExpect(jsonPath("$[0].username").value(username));
@@ -88,21 +86,11 @@ class PlayerSearchControllerTests {
 
         mockMvc.perform(get("/api/v1/players/search")
                         .param("query", playerId.substring(0, 16))
-                        .session(guestSession()))
+                        .with(bearer(guest(mockMvc, "Searcher").token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].playerId").value(playerId))
                 .andExpect(jsonPath("$[0].username").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$[0].displayName").value("Guest Search"));
     }
 
-    private MockHttpSession guestSession() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Searcher\"}"))
-                .andExpect(status().isCreated());
-        return session;
-    }
 }

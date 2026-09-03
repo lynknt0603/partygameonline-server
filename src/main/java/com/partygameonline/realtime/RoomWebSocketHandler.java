@@ -10,17 +10,19 @@ import com.partygameonline.room.domain.RoomPlayer;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.SubProtocolCapable;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-public class RoomWebSocketHandler extends TextWebSocketHandler {
+public class RoomWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
 
     private static final Logger log = LoggerFactory.getLogger(RoomWebSocketHandler.class);
 
@@ -57,6 +59,11 @@ public class RoomWebSocketHandler extends TextWebSocketHandler {
         this.roomChatService = roomChatService;
         this.rateLimiter = rateLimiter;
         this.jsonMapper = jsonMapper;
+    }
+
+    @Override
+    public List<String> getSubProtocols() {
+        return List.of("boardverse");
     }
 
     @Override

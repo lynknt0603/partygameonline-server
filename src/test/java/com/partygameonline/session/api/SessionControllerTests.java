@@ -1,6 +1,6 @@
 package com.partygameonline.session.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -28,26 +27,31 @@ class SessionControllerTests {
     @Test
     void registrationUsesDisplayNameAndLoginKeepsIt() throws Exception {
         String username = "register" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-        MockHttpSession registrationSession = new MockHttpSession();
 
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(registrationSession)
-                        .with(csrf())
+        MvcResult registered = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username
                                 + "\",\"password\":\"Secret123!\",\"displayName\":\"Linh Test1\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.displayName").value("Linh Test1"))
-                .andExpect(jsonPath("$.kind").value("MEMBER"));
+                .andExpect(jsonPath("$.kind").value("MEMBER"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn();
+
+        String registrationToken = com.jayway.jsonpath.JsonPath.read(
+                registered.getResponse().getContentAsString(), "$.accessToken"
+        );
+        mockMvc.perform(get("/api/v1/session/me").with(bearer(registrationToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Linh Test1"));
 
         mockMvc.perform(post("/api/v1/auth/login")
-                        .session(new MockHttpSession())
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.displayName").value("Linh Test1"))
-                .andExpect(jsonPath("$.kind").value("MEMBER"));
+                .andExpect(jsonPath("$.kind").value("MEMBER"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
     }
 
     @Test
@@ -55,7 +59,6 @@ class SessionControllerTests {
         String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
 
         mockMvc.perform(post("/api/v1/auth/register")
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"missing" + suffix + "\",\"password\":\"Secret123!\"}"))
                 .andExpect(status().isBadRequest())
@@ -63,7 +66,6 @@ class SessionControllerTests {
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("displayName"));
 
         mockMvc.perform(post("/api/v1/auth/register")
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"toolong" + suffix
                                 + "\",\"password\":\"Secret123!\",\"displayName\":\"12345678901\"}"))
@@ -74,11 +76,7 @@ class SessionControllerTests {
 
     @Test
     void guestSessionRoundTripKeepsServerGeneratedPlayerId() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-
         MvcResult created = mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"Linh\",\"playerId\":\"spoofed-id\"}"))
                 .andExpect(status().isCreated())
@@ -93,16 +91,19 @@ class SessionControllerTests {
                 created.getResponse().getContentAsString(),
                 "$.playerId"
         );
+        String token = com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(),
+                "$.accessToken"
+        );
 
-        mockMvc.perform(get("/api/v1/session/me").session(session))
+        mockMvc.perform(get("/api/v1/session/me").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerId").value(playerId))
                 .andExpect(jsonPath("$.displayName").value("Linh"))
                 .andExpect(jsonPath("$.currentRoomId").value(org.hamcrest.Matchers.nullValue()));
 
         mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"LinhNguyen\"}"))
                 .andExpect(status().isCreated())
@@ -113,27 +114,27 @@ class SessionControllerTests {
     @Test
     void guestEndpointDoesNotDowngradeMemberSession() throws Exception {
         String username = "member" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-        MockHttpSession session = new MockHttpSession();
 
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
+        MvcResult registered = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Member\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("MEMBER"))
-                .andExpect(jsonPath("$.displayName").value("Member"));
+                .andExpect(jsonPath("$.displayName").value("Member"))
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(
+                registered.getResponse().getContentAsString(), "$.accessToken"
+        );
 
         mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"NoChange\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.kind").value("MEMBER"))
                 .andExpect(jsonPath("$.displayName").value("Member"));
 
-        mockMvc.perform(get("/api/v1/session/me").session(session))
+        mockMvc.perform(get("/api/v1/session/me").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("MEMBER"))
                 .andExpect(jsonPath("$.displayName").value("Member"));
@@ -147,26 +148,28 @@ class SessionControllerTests {
     }
 
     @Test
-    void deleteTerminatesSession() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
+    void deleteRequiresBearerButDoesNotSetCookie() throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/v1/session/guest")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"Linh\"}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.accessToken"
+        );
 
-        mockMvc.perform(delete("/api/v1/session").session(session).with(csrf()))
-                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/session").with(bearer(token)))
+                .andExpect(status().isNoContent())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .doesNotExist("Set-Cookie"));
 
-        mockMvc.perform(get("/api/v1/session/me").session(session))
+        mockMvc.perform(get("/api/v1/session/me"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void guestRequiresDisplayName() throws Exception {
         mockMvc.perform(post("/api/v1/session/guest")
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"\"}"))
                 .andExpect(status().isBadRequest())

@@ -24,6 +24,9 @@ app:
       allowed-origins:
         - http://localhost:5173
         - http://127.0.0.1:5173
+    token:
+      secret: test-only-auth-token-key-that-is-at-least-32-characters
+      ttl: 24h
   realtime:
     disconnect-grace: 50ms
 

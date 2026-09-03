@@ -1,6 +1,8 @@
 package com.partygameonline.profile.api;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.partygameonline.testing.BearerTestSupport.bearer;
+import static com.partygameonline.testing.BearerTestSupport.guest;
+import static com.partygameonline.testing.BearerTestSupport.member;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,7 +17,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -32,15 +33,9 @@ class ProfileStatsControllerTests {
 
     @Test
     void guestWithoutMatchesReceivesZeroNobStats() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"StatsGuest\"}"))
-                .andExpect(status().isCreated());
+        String token = guest(mockMvc, "StatsGuest").token();
 
-        mockMvc.perform(get("/api/v1/profile/me/stats").session(session))
+        mockMvc.perform(get("/api/v1/profile/me/stats").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.playerId").isNotEmpty())
                 .andExpect(jsonPath("$.player.displayName").value("StatsGuest"))
@@ -63,7 +58,7 @@ class ProfileStatsControllerTests {
                 .andExpect(jsonPath("$.nobStats.halfblood.matchesWon").value(0))
                 .andExpect(jsonPath("$.nobStats.halfblood.winRate").value(0.0));
 
-        mockMvc.perform(get("/api/v1/matches/history?page=0&size=10").session(session))
+        mockMvc.perform(get("/api/v1/matches/history?page=0&size=10").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content.length()").value(0))
@@ -73,16 +68,9 @@ class ProfileStatsControllerTests {
     @Test
     void memberProfileCanBeViewedByUsername() throws Exception {
         String username = "profileviewer" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        MockHttpSession session = new MockHttpSession();
+        String token = member(mockMvc, username, "Viewer").token();
 
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Viewer\"}"))
-                .andExpect(status().isCreated());
-
-        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+        mockMvc.perform(get("/api/v1/profile/" + username).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.username").value(username))
                 .andExpect(jsonPath("$.player.displayName").value("Viewer"))
@@ -95,16 +83,9 @@ class ProfileStatsControllerTests {
     void memberProfileCanBeViewedByPlayerId() throws Exception {
         String username = "profileid" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         UserEntity user = userRepository.saveAndFlush(UserEntity.newMember(username, "encrypted-password"));
-        MockHttpSession session = new MockHttpSession();
+        String token = guest(mockMvc, "Viewer").token();
 
-        mockMvc.perform(post("/api/v1/session/guest")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"displayName\":\"Viewer\"}"))
-                .andExpect(status().isCreated());
-
-        mockMvc.perform(get("/api/v1/profile/" + user.getUserKey()).session(session))
+        mockMvc.perform(get("/api/v1/profile/" + user.getUserKey()).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.playerId").value(user.getUserKey()))
                 .andExpect(jsonPath("$.player.username").value(username))
@@ -115,38 +96,28 @@ class ProfileStatsControllerTests {
     @Test
     void memberCanUpdateDisplayNameWithoutLosingMemberSession() throws Exception {
         String username = "rename" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-        MockHttpSession session = new MockHttpSession();
-
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Old Name\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.kind").value("MEMBER"));
+        String token = member(mockMvc, username, "Old Name").token();
 
         mockMvc.perform(patch("/api/v1/profile/me")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"Room Name\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.displayName").value("Room Name"))
                 .andExpect(jsonPath("$.kind").value("MEMBER"));
 
-        mockMvc.perform(get("/api/v1/session/me").session(session))
+        mockMvc.perform(get("/api/v1/session/me").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.displayName").value("Room Name"))
                 .andExpect(jsonPath("$.kind").value("MEMBER"));
 
-        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+        mockMvc.perform(get("/api/v1/profile/" + username).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.username").value(username))
                 .andExpect(jsonPath("$.player.displayName").value("Room Name"));
 
         mockMvc.perform(patch("/api/v1/profile/me")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"12345678901\"}"))
                 .andExpect(status().isBadRequest())
@@ -156,20 +127,11 @@ class ProfileStatsControllerTests {
     @Test
     void memberAvatarIsPersistedAcrossSessionAndPublicProfile() throws Exception {
         String username = "avatar" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-        MockHttpSession session = new MockHttpSession();
-
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"Avatar\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
+        String token = member(mockMvc, username, "Avatar").token();
 
         String roomId = com.jayway.jsonpath.JsonPath.read(
                 mockMvc.perform(post("/api/v1/rooms")
-                                .session(session)
-                                .with(csrf())
+                                .with(bearer(token))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("""
                                         {"gameId":"night-of-bloodlines","name":"Avatar Room","visibility":"PUBLIC"}
@@ -182,38 +144,36 @@ class ProfileStatsControllerTests {
         );
 
         mockMvc.perform(patch("/api/v1/profile/me/avatar")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"avatarKey\":\"09_happy_dog.png\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
 
-        mockMvc.perform(get("/api/v1/session/me").session(session))
+        mockMvc.perform(get("/api/v1/session/me").with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
 
-        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+        mockMvc.perform(get("/api/v1/profile/" + username).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/09_happy_dog.png"));
 
-        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/09_happy_dog.png"));
 
         mockMvc.perform(patch("/api/v1/profile/me/avatar")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"avatarKey\":\"default.png\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarUrl").value("/assets/avatars/default.png"));
 
-        mockMvc.perform(get("/api/v1/profile/" + username).session(session))
+        mockMvc.perform(get("/api/v1/profile/" + username).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.player.avatarUrl").value("/assets/avatars/default.png"));
 
-        mockMvc.perform(get("/api/v1/rooms/" + roomId).session(session))
+        mockMvc.perform(get("/api/v1/rooms/" + roomId).with(bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.players[0].avatarUrl").value("/assets/avatars/default.png"));
     }
@@ -221,18 +181,10 @@ class ProfileStatsControllerTests {
     @Test
     void memberCannotSelectLockedOrUnknownAvatar() throws Exception {
         String username = "avatarlocked" + UUID.randomUUID().toString().replace("-", "").substring(0, 6);
-        MockHttpSession session = new MockHttpSession();
-
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .session(session)
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\",\"displayName\":\"AvatarLock\"}"))
-                .andExpect(status().isCreated());
+        String token = member(mockMvc, username, "AvatarLock").token();
 
         mockMvc.perform(patch("/api/v1/profile/me/avatar")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"avatarKey\":\"master.png\"}"))
                 .andExpect(status().isBadRequest())
@@ -241,28 +193,14 @@ class ProfileStatsControllerTests {
 
     @Test
     void guestCanUpdateDisplayNameWithoutChangingPlayerId() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-
-        String playerId = com.jayway.jsonpath.JsonPath.read(
-                mockMvc.perform(post("/api/v1/session/guest")
-                                .session(session)
-                                .with(csrf())
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"displayName\":\"Before\"}"))
-                        .andExpect(status().isCreated())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString(),
-                "$.playerId"
-        );
+        com.partygameonline.testing.BearerTestSupport.Identity guest = guest(mockMvc, "Before");
 
         mockMvc.perform(patch("/api/v1/profile/me")
-                        .session(session)
-                        .with(csrf())
+                        .with(bearer(guest.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"In Room\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.playerId").value(playerId))
+                .andExpect(jsonPath("$.playerId").value(guest.playerId()))
                 .andExpect(jsonPath("$.displayName").value("In Room"))
                 .andExpect(jsonPath("$.kind").value("GUEST"));
     }

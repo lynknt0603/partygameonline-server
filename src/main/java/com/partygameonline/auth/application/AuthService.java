@@ -7,7 +7,6 @@ import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.user.infrastructure.UserEntity;
 import com.partygameonline.user.infrastructure.UserJpaRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,8 +40,7 @@ public class AuthService {
     }
 
     @Transactional
-    public PlayerPrincipal register(String username, String password, String displayName,
-                                    HttpServletRequest request, HttpServletResponse response) {
+    public PlayerPrincipal register(String username, String password, String displayName) {
         String normalized = normalize(username);
         String normalizedDisplayName = displayName.trim();
         if (users.existsByUsername(normalized)) {
@@ -54,13 +52,11 @@ public class AuthService {
                     passwordCipher.encrypt(password),
                     normalizedDisplayName
             ));
-            return sessions.createMemberSession(
+            return sessions.createMember(
                     user.getUserKey(),
                     user.getDisplayName(),
                     user.getCreatedAt(),
-                    AvatarCatalog.urlForKey(user.getAvatarKey()),
-                    request,
-                    response
+                    AvatarCatalog.urlForKey(user.getAvatarKey())
             );
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException("USERNAME_ALREADY_EXISTS", HttpStatus.CONFLICT, "Username is already in use");
@@ -68,8 +64,7 @@ public class AuthService {
     }
 
     @Transactional
-    public PlayerPrincipal login(String username, String password,
-                                 HttpServletRequest request, HttpServletResponse response) {
+    public PlayerPrincipal login(String username, String password, HttpServletRequest request) {
         if (!authRateLimiter.tryAcquire(request == null ? null : request.getRemoteAddr())) {
             throw new ApiException(
                     "AUTH_RATE_LIMITED", HttpStatus.TOO_MANY_REQUESTS, "Too many login attempts; please try again later"
@@ -88,13 +83,11 @@ public class AuthService {
             user.upgradePassword(passwordCipher.encrypt(password));
             users.save(user);
         }
-        return sessions.createMemberSession(
+        return sessions.createMember(
                 user.getUserKey(),
                 user.getDisplayName(),
                 user.getCreatedAt(),
-                AvatarCatalog.urlForKey(user.getAvatarKey()),
-                request,
-                response
+                AvatarCatalog.urlForKey(user.getAvatarKey())
         );
     }
 

@@ -7,20 +7,18 @@ public record SessionResponse(
         String displayName,
         String kind,
         String avatarUrl,
-        String currentRoomId
+        String currentRoomId,
+        String accessToken
 ) {
 
-    public static SessionResponse from(PlayerPrincipal principal) {
-        return from(principal, null);
-    }
-
-    public static SessionResponse from(PlayerPrincipal principal, String currentRoomId) {
+    public static SessionResponse from(PlayerPrincipal principal, String currentRoomId, String accessToken) {
         return new SessionResponse(
                 principal.playerId(),
                 principal.displayName(),
                 principal.kind().name(),
                 principal.avatarUrl(),
-                currentRoomId
+                currentRoomId,
+                accessToken
         );
     }
 }

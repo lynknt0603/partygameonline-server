@@ -13,10 +13,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CsrfFilter;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -29,16 +26,20 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
+            TokenAuthenticator tokenAuthenticator,
             JsonAuthenticationEntryPoint authenticationEntryPoint,
             JsonAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
         http
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(csrfTokenRepository())
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                // Legacy IF_REQUIRED HttpSession + session-bound CSRF configuration
+                // is intentionally disabled. See commit 2568fd5 for the exact code.
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable)
+                .addFilterBefore(
+                        new BearerTokenAuthenticationFilter(tokenAuthenticator),
+                        AnonymousAuthenticationFilter.class
                 )
-                .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .cors(Customizer.withDefaults())
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
@@ -49,10 +50,10 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/games", "/api/v1/games/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/session/guest").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/ws").permitAll()
                         .requestMatchers("/__test/**").permitAll()
                         .anyRequest().authenticated()
                 );
@@ -63,13 +64,12 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource(SecurityProperties properties) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.cors().allowedOrigins());
-        configuration.setAllowCredentials(true);
+        configuration.setAllowCredentials(false);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 HttpHeaders.CONTENT_TYPE,
                 HttpHeaders.ACCEPT,
-                "X-XSRF-TOKEN",
-                "X-CSRF-TOKEN",
+                HttpHeaders.AUTHORIZATION,
                 "X-Request-Id"
         ));
         configuration.setExposedHeaders(List.of("X-Request-Id"));
@@ -78,9 +78,4 @@ public class SecurityConfig {
         return source;
     }
 
-    private CsrfTokenRepository csrfTokenRepository() {
-        HttpSessionCsrfTokenRepository repository = new HttpSessionCsrfTokenRepository();
-        repository.setHeaderName("X-XSRF-TOKEN");
-        return repository;
-    }
 }

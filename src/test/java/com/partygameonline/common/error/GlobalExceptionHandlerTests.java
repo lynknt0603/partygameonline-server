@@ -1,6 +1,5 @@
 package com.partygameonline.common.error;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -46,7 +45,6 @@ class GlobalExceptionHandlerTests {
     @Test
     void validationFailureReturnsFieldErrors() throws Exception {
         mockMvc.perform(post("/__test/validate")
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"\"}"))
                 .andExpect(status().isBadRequest())

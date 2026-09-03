@@ -1,102 +1,48 @@
 package com.partygameonline.session.application;
 
 import com.partygameonline.common.avatar.AvatarCatalog;
-import com.partygameonline.security.PlayerAuthentication;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import com.partygameonline.session.domain.SessionKind;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import java.time.Instant;
 import java.util.UUID;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SessionService {
 
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
-
     public PlayerPrincipal createOrRefreshGuest(
             String displayName,
-            HttpServletRequest request,
-            HttpServletResponse response
+            PlayerPrincipal current
     ) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null
-                && authentication.getPrincipal() instanceof PlayerPrincipal principal
-                && principal.kind() == SessionKind.MEMBER) {
-            return principal;
+        if (current != null && current.kind() == SessionKind.MEMBER) {
+            return current;
         }
         String normalizedName = displayName.trim();
-        PlayerPrincipal principal = existingGuest()
-                .map(current -> current.withDisplayName(normalizedName))
-                .orElseGet(() -> PlayerPrincipal.guest(UUID.randomUUID().toString(), normalizedName));
-
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new PlayerAuthentication(principal));
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, request, response);
-        return principal;
-    }
-
-    public void terminate(HttpServletRequest request, HttpServletResponse response) {
-        SecurityContextHolder.clearContext();
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
+        if (current != null && current.kind() == SessionKind.GUEST) {
+            return current.withDisplayName(normalizedName);
         }
-        response.setHeader("Clear-Site-Data", "\"cookies\"");
+        return PlayerPrincipal.guest(UUID.randomUUID().toString(), normalizedName);
     }
 
-    public PlayerPrincipal createMemberSession(
+    public PlayerPrincipal createMember(
             String playerId,
             String displayName,
             Instant createdAt,
-            String avatarUrl,
-            HttpServletRequest request,
-            HttpServletResponse response
+            String avatarUrl
     ) {
-        HttpSession existingSession = request.getSession(false);
-        if (existingSession != null) {
-            request.changeSessionId();
-        }
-        PlayerPrincipal principal = PlayerPrincipal.member(playerId, displayName, createdAt, avatarUrl);
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new PlayerAuthentication(principal));
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, request, response);
-        return principal;
+        return PlayerPrincipal.member(playerId, displayName, createdAt, avatarUrl);
     }
 
-    public PlayerPrincipal createMemberSession(
+    public PlayerPrincipal createMember(
             String playerId,
             String displayName,
-            Instant createdAt,
-            HttpServletRequest request,
-            HttpServletResponse response
+            Instant createdAt
     ) {
-        return createMemberSession(
+        return createMember(
                 playerId,
                 displayName,
                 createdAt,
-                AvatarCatalog.DEFAULT_URL,
-                request,
-                response
+                AvatarCatalog.DEFAULT_URL
         );
-    }
-
-    private java.util.Optional<PlayerPrincipal> existingGuest() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null
-                && authentication.getPrincipal() instanceof PlayerPrincipal principal
-                && principal.kind() == SessionKind.GUEST) {
-            return java.util.Optional.of(principal);
-        }
-        return java.util.Optional.empty();
     }
 }

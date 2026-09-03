@@ -30,15 +30,16 @@ spring:
 server:
   port: 8080
   shutdown: graceful
-  servlet:
-    session:
-      timeout: 24h
-      tracking-modes: cookie
-      cookie:
-        name: PGOSESSION
-        http-only: true
-        secure: ${COOKIE_SECURE:false}
-        same-site: ${COOKIE_SAME_SITE:lax}
+  # Legacy cookie session configuration (disabled after bearer-token migration):
+  # servlet:
+  #   session:
+  #     timeout: 24h
+  #     tracking-modes: cookie
+  #     cookie:
+  #       name: PGOSESSION
+  #       http-only: true
+  #       secure: ${COOKIE_SECURE:false}
+  #       same-site: ${COOKIE_SAME_SITE:lax}
 
 games:
   nob:
@@ -65,9 +66,13 @@ app:
   security:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
-    cookie:
-      secure: ${COOKIE_SECURE:false}
-      same-site: ${COOKIE_SAME_SITE:lax}
+    token:
+      secret: ${AUTH_TOKEN_KEY:}
+      ttl: ${AUTH_TOKEN_TTL:24h}
+    # Legacy cookie properties (disabled):
+    # cookie:
+    #   secure: ${COOKIE_SECURE:false}
+    #   same-site: ${COOKIE_SAME_SITE:lax}
   realtime:
     disconnect-grace: ${DISCONNECT_GRACE:30s}
 

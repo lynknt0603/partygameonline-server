@@ -1,6 +1,7 @@
 package com.partygameonline.realtime;
 
 import com.partygameonline.security.SecurityProperties;
+import com.partygameonline.security.TokenAuthenticator;
 import com.partygameonline.session.domain.PlayerPrincipal;
 import java.net.URI;
 import java.util.List;
@@ -8,7 +9,6 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
@@ -17,9 +17,14 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 public class AuthHandshakeInterceptor implements HandshakeInterceptor {
 
     private final SecurityProperties securityProperties;
+    private final TokenAuthenticator tokenAuthenticator;
 
-    public AuthHandshakeInterceptor(SecurityProperties securityProperties) {
+    public AuthHandshakeInterceptor(
+            SecurityProperties securityProperties,
+            TokenAuthenticator tokenAuthenticator
+    ) {
         this.securityProperties = securityProperties;
+        this.tokenAuthenticator = tokenAuthenticator;
     }
 
     @Override
@@ -32,14 +37,24 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         if (!originAllowed(request)) {
             return false;
         }
-        if (!(request.getPrincipal() instanceof Authentication authentication)) {
-            return false;
-        }
-        if (!(authentication.getPrincipal() instanceof PlayerPrincipal player)) {
+        PlayerPrincipal player = bearerToken(request)
+                .flatMap(tokenAuthenticator::authenticate)
+                .orElse(null);
+        if (player == null) {
             return false;
         }
         attributes.put(WebSocketConnectionHub.PLAYER_ATTRIBUTE, player);
         return true;
+    }
+
+    private java.util.Optional<String> bearerToken(ServerHttpRequest request) {
+        return request.getHeaders().getOrEmpty("Sec-WebSocket-Protocol").stream()
+                .flatMap(value -> java.util.Arrays.stream(value.split(",")))
+                .map(String::trim)
+                .filter(value -> value.startsWith("bearer."))
+                .map(value -> value.substring("bearer.".length()))
+                .filter(value -> !value.isBlank())
+                .findFirst();
     }
 
     @Override
