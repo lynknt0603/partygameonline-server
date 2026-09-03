@@ -44,6 +44,29 @@ class RankingServiceTests {
     private RankingService rankingService;
 
     @Test
+    void excludesNobPlayersWhoOnlyHaveAForfeitPenalty() {
+        UserGameStatisticEntity forfeitOnly = UserGameStatisticEntity.newStatistic(
+                "forfeit-only",
+                NobGameManifest.ID
+        );
+        forfeitOnly.applyRatingDelta(-50);
+        when(statisticRepository.findByGameCode(NobGameManifest.ID)).thenReturn(List.of(forfeitOnly));
+
+        RankingResponse response = rankingService.getRanking(
+                NobGameManifest.ID,
+                "highestElo",
+                null,
+                0,
+                7,
+                null
+        );
+
+        assertThat(response.totalPlayers()).isZero();
+        assertThat(response.podium()).isEmpty();
+        assertThat(response.entries()).isEmpty();
+    }
+
+    @Test
     void resolvesLegacyDatabaseUserIdToAccountIdentity() {
         UUID databaseId = UUID.randomUUID();
         String legacyPlayerId = databaseId.toString();
@@ -394,6 +417,7 @@ class RankingServiceTests {
     private static UserGameStatisticEntity statistic(String playerId, int delta) {
         UserGameStatisticEntity statistic = UserGameStatisticEntity.newStatistic(playerId, NobGameManifest.ID);
         statistic.applyRatingDelta(delta);
+        statistic.completeMatch(false);
         return statistic;
     }
 
