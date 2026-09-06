@@ -2,6 +2,14 @@
 
 Backend service for Party Game Online, a real-time multiplayer board and party game platform. Built as a server-authoritative modular monolith in Spring Boot and Java 21, the system securely manages game rules, hidden information (private roles, secret cards), room lifecycles, and real-time state projection over WebSockets.
 
+## Available Games
+
+| Game | Players | Short description |
+|---|---:|---|
+| **Night of Bloodlines** (`night-of-bloodlines`) | 4–11 | A hidden-faction deduction game where Vampires, Werewolves, and Halfbloods use secret role cards, survive the night, and compete for Moon Marks. |
+| **Where's the Bone** (`wheres-the-bone`) | 4–8 | A social-deduction game where dogs wake at different hours, the Bone Thief attempts a secret theft, and the group must identify the culprit through discussion and voting. |
+| **Not In My Pot!** (`not-in-my-pot`) | 3–8 | A bluffing team game where Vegetarians try to complete a valid pot while Meat Eaters secretly sabotage it with harmful ingredients and deceptive declarations. |
+
 ## Tech Stack
 
 - Language & Framework: Java 21, Spring Boot 4.1.0 (Spring WebMVC, Spring WebSocket, Spring Security, Spring Data JPA)
@@ -17,6 +25,7 @@ Backend service for Party Game Online, a real-time multiplayer board and party g
 - src/main/java/com/partygameonline/game/runtime: Active game session dispatcher and lifecycle management
 - src/main/java/com/partygameonline/game/nob: Engine and state projector for Night of Bloodlines
 - src/main/java/com/partygameonline/game/wheresthebone: Engine and state projector for Where's The Bone
+- src/main/java/com/partygameonline/game/notinmypot: Engine and state projector for Not In My Pot!
 - src/main/java/com/partygameonline/realtime: WebSocket handlers, message envelopes, and live chat
 - src/main/java/com/partygameonline/history: Match history recording and persistence
 - src/main/java/com/partygameonline/ranking: ELO rating policies and calculation
@@ -134,6 +143,7 @@ Health and monitoring endpoints:
 - REST API Reference: `docs/REST-API.md`
 - WebSocket Protocol: `docs/WEBSOCKET-PROTOCOL.md`
 - Night of Bloodlines Rules: `docs/NOB_GAME_RULES_VI.md`
+- Not In My Pot! API Contract: `docs/NOT-IN-MY-POT.md`
 
 ## License
 
