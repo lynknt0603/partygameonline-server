@@ -93,7 +93,12 @@ public final class AuthTokenService {
             return Optional.empty();
         }
         try {
-            byte[] payload = Base64.getUrlDecoder().decode(token.substring(PREFIX.length()));
+            String encodedPayload = token.substring(PREFIX.length());
+            byte[] payload = Base64.getUrlDecoder().decode(encodedPayload);
+            String canonicalPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(payload);
+            if (!canonicalPayload.equals(encodedPayload)) {
+                return Optional.empty();
+            }
             if (payload.length <= IV_BYTES + 16) {
                 return Optional.empty();
             }
