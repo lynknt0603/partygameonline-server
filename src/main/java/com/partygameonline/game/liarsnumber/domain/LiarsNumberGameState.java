@@ -44,6 +44,8 @@ public class LiarsNumberGameState implements GameOutcomeState, GameEloChangeSink
     private String loserId;
     private int roundNumber = 1;
     private int stateVersion = 1;
+    private int turnSeconds = LiarsNumberSettings.DEFAULT_TURN_SECONDS;
+    private Instant turnDeadline;
     private Instant finishedAt;
 
     public LiarsNumberGameState(String roomId, int playerCount) {
@@ -73,6 +75,29 @@ public class LiarsNumberGameState implements GameOutcomeState, GameEloChangeSink
     public void incrementRoundNumber() { roundNumber += 1; }
     public int getStateVersion() { return stateVersion; }
     public void bumpVersion() { stateVersion += 1; }
+    public int getTurnSeconds() { return turnSeconds; }
+    public Instant getTurnDeadline() { return turnDeadline; }
+    public void configure(LiarsNumberSettings settings) {
+        this.turnSeconds = settings == null ? LiarsNumberSettings.DEFAULT_TURN_SECONDS : settings.turnSeconds();
+        resetTurnDeadline();
+    }
+    public void resetTurnDeadline() {
+        resetTurnDeadline(Instant.now());
+    }
+    public void resetTurnDeadline(Instant now) {
+        turnDeadline = turnSeconds <= 0 || isFinished() ? null : now.plusSeconds(turnSeconds);
+    }
+    public boolean timeoutIsDue(Instant now) {
+        return turnDeadline != null && !turnDeadline.isAfter(now);
+    }
+    public String currentActorId() {
+        if (isFinished()) return null;
+        if (phase == LiarsNumberPhase.SELECT_CARD) return currentRoundStarterId;
+        if (activeRound == null) return null;
+        return phase == LiarsNumberPhase.RECEIVER_DECISION
+                ? activeRound.getCurrentReceiverId()
+                : activeRound.getCurrentSenderId();
+    }
     public int threshold() { return playerCount == 2 ? TWO_PLAYER_THRESHOLD : NORMAL_THRESHOLD; }
     public boolean isFinished() { return phase == LiarsNumberPhase.GAME_OVER; }
     public String getLoserId() { return loserId; }
@@ -110,6 +135,7 @@ public class LiarsNumberGameState implements GameOutcomeState, GameEloChangeSink
         this.gameOverReason = reason;
         this.finishedAt = Instant.now();
         this.phase = LiarsNumberPhase.GAME_OVER;
+        this.turnDeadline = null;
         this.winnerPlayerIds.clear();
         for (LiarsNumberPlayerState player : players) {
             if (!player.getPlayerId().equals(loserId)) {

@@ -63,6 +63,8 @@ public final class LiarsNumberGameProjector implements GameStateProjector<LiarsN
                 state.getPhase().name(),
                 state.getStateVersion(),
                 Instant.now(),
+                state.getTurnSeconds(),
+                state.getTurnDeadline(),
                 state.isFinished(),
                 state.getPlayerCount(),
                 state.threshold(),

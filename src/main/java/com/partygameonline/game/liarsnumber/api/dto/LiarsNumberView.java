@@ -10,6 +10,8 @@ public record LiarsNumberView(
         String phase,
         int stateVersion,
         Instant serverTime,
+        int turnSeconds,
+        Instant turnDeadline,
         boolean finished,
         int playerCount,
         int lossThreshold,

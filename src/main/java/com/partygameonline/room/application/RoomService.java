@@ -225,6 +225,7 @@ public class RoomService {
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings,
             Map<String, Object> wheresTheBoneSettings,
+            Map<String, Object> liarsNumberSettings,
             Boolean locked,
             Integer maxPlayers
     ) {
@@ -247,6 +248,7 @@ public class RoomService {
             requested.put("nob", settingOrCurrent(nobSettings, "nob", room));
             requested.put("notInMyPot", settingOrCurrent(notInMyPotSettings, "notInMyPot", room));
             requested.put("wheresTheBone", settingOrCurrent(wheresTheBoneSettings, "wheresTheBone", room));
+            requested.put("liarsNumber", settingOrCurrent(liarsNumberSettings, "liarsNumber", room));
             next.putAll(game.normalizeRoomSettings(requested));
             room.replaceSettings(next);
             realtimePublisher.roomSettingsChanged(room);
@@ -258,7 +260,7 @@ public class RoomService {
      * Backwards-compatible overload for callers that only send NOB settings.
      */
     public GameRoom updateSettings(PlayerPrincipal principal, String rawRoomId, Map<String, Object> nobSettings) {
-        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), Map.of(), null, null);
+        return updateSettings(principal, rawRoomId, nobSettings, Map.of(), Map.of(), Map.of(), null, null);
     }
 
     /** Backwards-compatible overload for callers that send both game settings. */
@@ -268,7 +270,7 @@ public class RoomService {
             Map<String, Object> nobSettings,
             Map<String, Object> notInMyPotSettings
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), null, null);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), Map.of(), null, null);
     }
 
     /** Backwards-compatible overload retained for the original two-game API. */
@@ -279,7 +281,7 @@ public class RoomService {
             Map<String, Object> notInMyPotSettings,
             Boolean locked
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), locked, null);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, Map.of(), Map.of(), locked, null);
     }
 
     public GameRoom updateSettings(
@@ -290,7 +292,7 @@ public class RoomService {
             Map<String, Object> wheresTheBoneSettings,
             Boolean locked
     ) {
-        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, wheresTheBoneSettings, locked, null);
+        return updateSettings(principal, rawRoomId, nobSettings, notInMyPotSettings, wheresTheBoneSettings, Map.of(), locked, null);
     }
 
     public GameRoom kick(PlayerPrincipal principal, String rawRoomId, String targetPlayerId) {

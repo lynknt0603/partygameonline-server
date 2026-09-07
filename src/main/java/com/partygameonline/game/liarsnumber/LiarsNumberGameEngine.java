@@ -18,6 +18,8 @@ import com.partygameonline.game.liarsnumber.domain.LiarsNumberEvent;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberGameState;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberPhase;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberPlayerState;
+import com.partygameonline.game.liarsnumber.domain.LiarsNumberSettings;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -61,6 +63,7 @@ public final class LiarsNumberGameEngine
         }
         String starterId = state.getPlayers().get(random.nextInt(playerCount)).getPlayerId();
         state.setCurrentRoundStarterId(starterId);
+        state.configure(LiarsNumberSettings.fromRoomSettings(config.settings()));
         state.addPublicEvent(LiarsNumberEvent.of("LIARS_NUMBER_GAME_STARTED", Map.of(
                 "playerCount", playerCount,
                 "lossThreshold", state.threshold(),
@@ -110,6 +113,7 @@ public final class LiarsNumberGameEngine
             case PEEK_AND_PASS -> validatePeek(state, actor.playerId(), round);
             case SELECT_PASS_TARGET -> validatePassTarget(state, actor.playerId(), action, round);
             case PASS_DECLARE_TYPE -> validateDeclare(state, actor.playerId(), action, round, LiarsNumberPhase.PASS_DECLARE_TYPE);
+            case TIMEOUT -> validateTimeout(state, actor.playerId());
         };
     }
 
@@ -142,8 +146,10 @@ public final class LiarsNumberGameEngine
                 ));
             }
             case GUESS -> resolveGuess(state, actor.playerId(), action.guess(), events);
+            case TIMEOUT -> applyTimeout(state, actor.playerId(), random, events);
         }
         state.bumpVersion();
+        state.resetTurnDeadline();
         return toResult(state, events);
     }
 
@@ -366,6 +372,61 @@ public final class LiarsNumberGameEngine
         return value == null || value < 1 || value > 8
                 ? ValidationResult.reject("INVALID_DECLARED_TYPE", "Choose a number from 1 to 8")
                 : ValidationResult.ok();
+    }
+
+    private static ValidationResult validateTimeout(LiarsNumberGameState state, String actorId) {
+        if (!actorId.equals(state.currentActorId())) {
+            return ValidationResult.reject("NOT_CURRENT_PLAYER", "Only the current player can time out");
+        }
+        return state.timeoutIsDue(Instant.now())
+                ? ValidationResult.ok()
+                : ValidationResult.reject("TIMEOUT_NOT_DUE", "The turn has not expired");
+    }
+
+    private static void applyTimeout(
+            LiarsNumberGameState state,
+            String actorId,
+            RandomSource random,
+            List<LiarsNumberEvent> events
+    ) {
+        LiarsNumberActiveRound round = state.getActiveRound();
+        switch (state.getPhase()) {
+            case SELECT_CARD -> {
+                List<LiarsNumberCard> hand = state.findPlayer(actorId).getHand();
+                selectCard(state, actorId, hand.get(random.nextInt(hand.size())).cardId(), events);
+            }
+            case SELECT_TARGET -> {
+                List<String> targets = state.getPlayers().stream()
+                        .map(LiarsNumberPlayerState::getPlayerId)
+                        .filter(id -> !id.equals(actorId))
+                        .toList();
+                String targetId = targets.get(random.nextInt(targets.size()));
+                round.setCurrentReceiverId(targetId);
+                state.setPhase(LiarsNumberPhase.DECLARE_TYPE);
+                addEvent(state, events, "LIARS_NUMBER_TARGET_SELECTED", Map.of(
+                        "senderId", actorId, "receiverId", targetId, "automatic", true
+                ));
+            }
+            case DECLARE_TYPE, PASS_DECLARE_TYPE -> declare(state, actorId, random.nextInt(8) + 1, events);
+            case RECEIVER_DECISION -> resolveGuess(
+                    state,
+                    actorId,
+                    random.nextInt(2) == 0 ? "TRUE" : "FALSE",
+                    events
+            );
+            case SELECT_PASS_TARGET -> {
+                List<String> targets = availablePassTargets(state, actorId, round);
+                String targetId = targets.get(random.nextInt(targets.size()));
+                round.setCurrentReceiverId(targetId);
+                state.setPhase(LiarsNumberPhase.PASS_DECLARE_TYPE);
+                addEvent(state, events, "LIARS_NUMBER_PASS_TARGET_SELECTED", Map.of(
+                        "senderId", actorId, "receiverId", targetId, "automatic", true
+                ));
+            }
+            case GAME_OVER -> {
+                // Validation prevents timeout after the game has finished.
+            }
+        }
     }
 
     public static List<String> availablePassTargets(

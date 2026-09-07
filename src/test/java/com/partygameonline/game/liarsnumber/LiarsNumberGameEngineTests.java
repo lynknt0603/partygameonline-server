@@ -13,6 +13,9 @@ import com.partygameonline.game.liarsnumber.domain.LiarsNumberCard;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberGameState;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberPhase;
 import com.partygameonline.game.liarsnumber.domain.LiarsNumberPlayerState;
+import com.partygameonline.game.liarsnumber.domain.LiarsNumberSettings;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -55,6 +58,52 @@ class LiarsNumberGameEngineTests {
         assertThat(state.getPlayers().stream().mapToInt(player -> player.getHand().size()).max()).hasValue(22);
         assertThat(state.getPlayers().stream().mapToInt(player -> player.getHand().size()).min()).hasValue(21);
         assertThat(state.threshold()).isEqualTo(4);
+    }
+
+    @Test
+    void turnTimerIsUnlimitedByDefaultAndAcceptsFiveSecondStepsUpToThirty() {
+        LiarsNumberGameState defaultState = engine.createGame(config("p1", "p2"), new SeededRandomSource(9L));
+
+        assertThat(defaultState.getTurnSeconds()).isZero();
+        assertThat(defaultState.getTurnDeadline()).isNull();
+
+        LiarsNumberGameState timedState = engine.createGame(
+                configWithSettings(Map.of("liarsNumber", Map.of("turnSeconds", 15))),
+                new SeededRandomSource(10L)
+        );
+
+        assertThat(timedState.getTurnSeconds()).isEqualTo(15);
+        assertThat(timedState.getTurnDeadline()).isBetween(
+                Instant.now().plusSeconds(13),
+                Instant.now().plusSeconds(16)
+        );
+        assertThat(Duration.between(Instant.now(), timedState.getTurnDeadline()).toSeconds()).isBetween(13L, 15L);
+    }
+
+    @Test
+    void invalidTurnTimerFallsBackToUnlimited() {
+        LiarsNumberSettings settings = LiarsNumberSettings.fromMap(Map.of("turnSeconds", 7));
+
+        assertThat(settings.turnSeconds()).isZero();
+        assertThat(LiarsNumberSettings.fromMap(Map.of("turnSeconds", 30)).turnSeconds()).isEqualTo(30);
+    }
+
+    @Test
+    void expiredTurnAutomaticallyChoosesAValidAction() {
+        LiarsNumberGameState state = engine.createGame(
+                configWithSettings(Map.of("liarsNumber", Map.of("turnSeconds", 5))),
+                new SeededRandomSource(11L)
+        );
+        String actorId = state.currentActorId();
+        state.resetTurnDeadline(Instant.now().minusSeconds(10));
+        LiarsNumberAction timeout = action(LiarsNumberActionType.TIMEOUT, null, null, null, "timeout");
+
+        assertThat(engine.validate(state, player(actorId), timeout).valid()).isTrue();
+        engine.apply(state, player(actorId), timeout, new SeededRandomSource(12L));
+
+        assertThat(state.getPhase()).isEqualTo(LiarsNumberPhase.SELECT_TARGET);
+        assertThat(state.getActiveRound()).isNotNull();
+        assertThat(state.getTurnDeadline()).isAfter(Instant.now());
     }
 
     @Test
@@ -135,6 +184,17 @@ class LiarsNumberGameEngineTests {
                 List.of(ids),
                 Map.of("p1", "P1", "p2", "P2", "p3", "P3"),
                 11L
+        );
+    }
+
+    private static GameConfig configWithSettings(Map<String, Object> settings) {
+        return new GameConfig(
+                LiarsNumberGameManifest.ID,
+                "ROOM",
+                List.of("p1", "p2"),
+                Map.of("p1", "P1", "p2", "P2"),
+                11L,
+                settings
         );
     }
 

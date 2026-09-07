@@ -7,5 +7,6 @@ public enum LiarsNumberActionType {
     GUESS,
     PEEK_AND_PASS,
     SELECT_PASS_TARGET,
-    PASS_DECLARE_TYPE
+    PASS_DECLARE_TYPE,
+    TIMEOUT
 }
