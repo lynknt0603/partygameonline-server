@@ -102,6 +102,7 @@ public class RoomController {
                 request == null ? java.util.Map.of() : request.nob(),
                 request == null ? java.util.Map.of() : request.notInMyPot(),
                 request == null ? java.util.Map.of() : request.wheresTheBone(),
+                request == null ? java.util.Map.of() : request.liarsNumber(),
                 request == null ? null : request.locked(),
                 request == null ? null : request.maxPlayers()
         ));

@@ -293,7 +293,7 @@ public class NobGameState implements GameRoundEloSource, GameEloChangeSink, Game
                 decisionSeconds,
                 reactionSeconds,
                 2500,
-                3000,
+                5000,
                 30
         ));
     }

@@ -1,6 +1,7 @@
 package com.partygameonline.ranking.application;
 
 import com.partygameonline.game.nob.NobGameManifest;
+import com.partygameonline.game.liarsnumber.LiarsNumberGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundJpaRepository;
 import com.partygameonline.game.notinmypot.NotInMyPotGameManifest;
@@ -99,6 +100,7 @@ public class RankingService {
         boolean nobRanking = NobGameManifest.ID.equals(normalizedGame);
         boolean notInMyPotRanking = NotInMyPotGameManifest.ID.equals(normalizedGame);
         boolean wheresTheBoneRanking = WheresTheBoneGameManifest.ID.equals(normalizedGame);
+        boolean liarsNumberRanking = LiarsNumberGameManifest.ID.equals(normalizedGame);
         String normalizedSort = normalizeSort(sort);
         if (nobRanking && "roleWins".equals(normalizedSort)) {
             normalizedSort = "bloodlineWins";
@@ -171,7 +173,7 @@ public class RankingService {
                         || player.notInMyPotFactionSummary().played(NotInMyPotRole.VEGETARIAN) > 0)
                 .filter(player -> !meatEaterRanking
                         || player.notInMyPotFactionSummary().played(NotInMyPotRole.MEAT_EATER) > 0)
-                .sorted(comparator(normalizedSort, normalizedBloodline, normalizedRole))
+                .sorted(comparator(normalizedSort, normalizedBloodline, normalizedRole, liarsNumberRanking))
                 .toList();
 
         List<RankingResponse.RankingEntry> allEntries = new ArrayList<>(ranked.size());
@@ -328,26 +330,31 @@ public class RankingService {
         );
     }
 
-    private static Comparator<RankedPlayer> comparator(String sort, String bloodline, String role) {
+    private static Comparator<RankedPlayer> comparator(String sort, String bloodline, String role, boolean currentElo) {
+        Comparator<RankedPlayer> eloDescending = Comparator.comparingInt(
+                (RankedPlayer player) -> currentElo ? player.elo() : player.highestElo()
+        ).reversed();
         Comparator<RankedPlayer> comparator;
         if ("wins".equals(sort)) {
             comparator = Comparator.comparingInt((RankedPlayer player) -> player.totalWins()).reversed()
-                    .thenComparing(Comparator.comparingInt(RankedPlayer::highestElo).reversed());
+                    .thenComparing(eloDescending);
         } else if ("bloodlineWins".equals(sort)) {
             comparator = Comparator.comparingInt((RankedPlayer player) -> player.bloodlineSummary().wins(bloodline))
                     .reversed()
-                    .thenComparing(Comparator.comparingInt(RankedPlayer::highestElo).reversed());
+                    .thenComparing(eloDescending);
         } else if ("roleWins".equals(sort)) {
             comparator = Comparator.comparingInt((RankedPlayer player) -> player.roleSummary().wins(role))
                     .reversed()
-                    .thenComparing(Comparator.comparingInt(RankedPlayer::highestElo).reversed());
+                    .thenComparing(eloDescending);
         } else if ("vegetarianWins".equals(sort)) {
             comparator = notInMyPotFactionComparator(NotInMyPotRole.VEGETARIAN);
         } else if ("meatEaterWins".equals(sort)) {
             comparator = notInMyPotFactionComparator(NotInMyPotRole.MEAT_EATER);
         } else {
-            comparator = Comparator.comparingInt(RankedPlayer::highestElo).reversed()
-                    .thenComparing(Comparator.comparingInt(RankedPlayer::elo).reversed());
+            comparator = eloDescending
+                    .thenComparing(currentElo
+                            ? Comparator.comparingInt(RankedPlayer::highestElo).reversed()
+                            : Comparator.comparingInt(RankedPlayer::elo).reversed());
         }
         return comparator.thenComparing(Comparator.comparingInt(RankedPlayer::totalWins).reversed())
                 .thenComparing(RankedPlayer::playerId);

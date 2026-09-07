@@ -16,7 +16,7 @@ public record NobTimingSettings(
 ) {
 
     public static NobTimingSettings defaults() {
-        return new NobTimingSettings(30, 30, 30, 30, 30, 10, 2500, 3000, 30);
+        return new NobTimingSettings(30, 30, 30, 30, 30, 10, 2500, 5000, 30);
     }
 
     public NobTimingSettings {
@@ -27,7 +27,7 @@ public record NobTimingSettings(
         hunterDecisionSeconds = clamp(hunterDecisionSeconds, 10, 120, 30);
         reactionDecisionSeconds = clamp(reactionDecisionSeconds, 5, 30, 10);
         resolutionCardDisplayMs = clamp(resolutionCardDisplayMs, 500, 10_000, 2500);
-        announcementDisplayMs = clamp(announcementDisplayMs, 500, 15_000, 3000);
+        announcementDisplayMs = clamp(announcementDisplayMs, 500, 15_000, 5000);
         roundSummarySeconds = clamp(roundSummarySeconds, 10, 120, 30);
     }
 
@@ -68,7 +68,7 @@ public record NobTimingSettings(
                 intVal(map, "hunterDecisionSeconds", 30),
                 intVal(map, "reactionDecisionSeconds", 10),
                 intVal(map, "resolutionCardDisplayMs", 2500),
-                intVal(map, "announcementDisplayMs", 3000),
+                intVal(map, "announcementDisplayMs", 5000),
                 intVal(map, "roundSummarySeconds", 30)
         );
     }

@@ -296,6 +296,39 @@ class RoomControllerTests {
     }
 
     @Test
+    void hostCanConfigureLiarsNumberTurnTimer() throws Exception {
+        Guest host = guest("Linh");
+        MvcResult created = mockMvc.perform(post("/api/v1/rooms")
+                        .with(bearer(host.token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"gameId":"liars-number","name":"Bluff table","maxPlayers":4}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.settings.liarsNumber.turnSeconds").value(0))
+                .andReturn();
+        String roomId = read(created, "$.id");
+
+        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
+                        .with(bearer(host.token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"liarsNumber":{"turnSeconds":25}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.liarsNumber.turnSeconds").value(25));
+
+        mockMvc.perform(put("/api/v1/rooms/" + roomId + "/settings")
+                        .with(bearer(host.token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"liarsNumber":{"turnSeconds":7}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settings.liarsNumber.turnSeconds").value(0));
+    }
+
+    @Test
     void hostCanChangeCapacityAndKickPlayersWithoutBreakingOccupancyRules() throws Exception {
         Guest host = guest("Linh");
         Guest[] players = new Guest[] {

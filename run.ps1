@@ -1,8 +1,73 @@
-$env:JAVA_HOME = "C:\Users\Admin\.jdks\jdk-21.0.12.1+1"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+$requiredJavaVersion = 21
 
-$pgCtl = "C:\Users\Admin\tools\pgsql\bin\pg_ctl.exe"
-$pgData = "C:\Users\Admin\tools\pgsql\data"
+function Get-JavaMajorVersion([string] $JavaHome) {
+    $javaExe = Join-Path $JavaHome "bin\java.exe"
+    if (-not (Test-Path -LiteralPath $javaExe -PathType Leaf)) {
+        return $null
+    }
+
+    $versionOutput = (& $javaExe -version 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0 -and $versionOutput -match 'version "(?:1\.)?(\d+)') {
+        return [int] $Matches[1]
+    }
+
+    return $null
+}
+
+function Find-JavaHome([int] $RequiredVersion) {
+    $candidateHomes = [System.Collections.Generic.List[string]]::new()
+
+    if ($env:JAVA_HOME) {
+        $candidateHomes.Add($env:JAVA_HOME)
+    }
+
+    $javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
+    if ($null -ne $javaCommand) {
+        $candidateHomes.Add((Split-Path (Split-Path $javaCommand.Source -Parent) -Parent))
+    }
+
+    $searchRoots = @(
+        (Join-Path $env:USERPROFILE ".jdks"),
+        (Join-Path $env:ProgramFiles "Java"),
+        (Join-Path $env:ProgramFiles "Eclipse Adoptium"),
+        (Join-Path $env:ProgramFiles "Microsoft"),
+        (Join-Path $env:ProgramFiles "Amazon Corretto")
+    )
+
+    foreach ($searchRoot in $searchRoots) {
+        if (Test-Path -LiteralPath $searchRoot -PathType Container) {
+            Get-ChildItem -LiteralPath $searchRoot -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { $candidateHomes.Add($_.FullName) }
+        }
+    }
+
+    $compatibleHomes = foreach ($candidateHome in ($candidateHomes | Select-Object -Unique)) {
+        $majorVersion = Get-JavaMajorVersion -JavaHome $candidateHome
+        if ($null -ne $majorVersion -and $majorVersion -ge $RequiredVersion) {
+            [PSCustomObject]@{
+                Home = $candidateHome
+                MajorVersion = $majorVersion
+            }
+        }
+    }
+
+    return $compatibleHomes |
+        Sort-Object @{ Expression = { if ($_.MajorVersion -eq $RequiredVersion) { 0 } else { 1 } } }, MajorVersion |
+        Select-Object -First 1
+}
+
+$java = Find-JavaHome -RequiredVersion $requiredJavaVersion
+if ($null -eq $java) {
+    throw "JDK $requiredJavaVersion or higher was not found. Install it or set JAVA_HOME to its installation directory."
+}
+
+$env:JAVA_HOME = $java.Home
+$env:Path = "$(Join-Path $env:JAVA_HOME 'bin');$env:Path"
+Write-Host "[run.ps1] Using Java $($java.MajorVersion) from $env:JAVA_HOME." -ForegroundColor DarkGray
+
+$pgRoot = Join-Path $env:USERPROFILE "tools\pgsql"
+$pgCtl = Join-Path $pgRoot "bin\pg_ctl.exe"
+$pgData = Join-Path $pgRoot "data"
 $postgresPortOpen = $null -ne (Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue |
     Select-Object -First 1)
 
@@ -12,7 +77,7 @@ if ($postgresPortOpen) {
     & $pgCtl -D $pgData status 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[run.ps1] Starting PostgreSQL service..." -ForegroundColor Cyan
-        & $pgCtl -D $pgData -l "C:\Users\Admin\tools\pgsql\postgres.log" start
+        & $pgCtl -D $pgData -l (Join-Path $pgRoot "postgres.log") start
     }
 }
 
