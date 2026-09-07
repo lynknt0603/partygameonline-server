@@ -99,6 +99,18 @@ class RoomWebSocketHandlerTests {
     }
 
     @Test
+    void oversizedRequestIdIsRejectedBeforeItCanBeRemembered() throws Exception {
+        String requestId = "x".repeat(129);
+
+        handler.handleTextMessage(session, new TextMessage("""
+                {"version":1,"type":"GAME_ACTION","requestId":"%s","roomId":"ABCD","payload":{}}
+                """.formatted(requestId)));
+
+        assertThat(lastPayload()).contains("INVALID_REQUEST_ID");
+        assertThat(deduper.trackedPlayerCount()).isZero();
+    }
+
+    @Test
     void roomSnapshotUsesSessionIdentity() throws Exception {
         GameRoom room = new GameRoom(
                 RoomId.parse("ABCD"),

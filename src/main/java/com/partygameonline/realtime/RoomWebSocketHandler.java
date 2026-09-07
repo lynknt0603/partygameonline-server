@@ -25,6 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class RoomWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
 
     private static final Logger log = LoggerFactory.getLogger(RoomWebSocketHandler.class);
+    private static final int MAX_REQUEST_ID_LENGTH = 128;
 
     private final WebSocketConnectionHub hub;
     private final WebSocketRoomRealtimePublisher publisher;
@@ -110,6 +111,10 @@ public class RoomWebSocketHandler extends TextWebSocketHandler implements SubPro
         }
         if (envelope.requestId() == null || envelope.requestId().isBlank()) {
             sendError(session, envelope.roomId(), null, "MISSING_REQUEST_ID", "requestId is required");
+            return;
+        }
+        if (envelope.requestId().length() > MAX_REQUEST_ID_LENGTH) {
+            sendError(session, envelope.roomId(), null, "INVALID_REQUEST_ID", "requestId is too long");
             return;
         }
         if (envelope.type() == null || envelope.type().isBlank()) {
