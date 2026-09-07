@@ -34,6 +34,7 @@ public class EloRatingService {
                 new NobGameEloPolicy(),
                 new NotInMyPotGameEloPolicy(),
                 new WheresTheBoneGameEloPolicy(),
+                new LiarsNumberGameEloPolicy(),
                 new DefaultGameEloPolicy()
         ));
     }
