@@ -3,6 +3,7 @@ package com.partygameonline.game.bloodbound;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.partygameonline.game.core.GameConfig;
+import com.partygameonline.game.core.GameResult;
 import com.partygameonline.game.core.PlayerContext;
 import com.partygameonline.game.core.SeededRandomSource;
 import com.partygameonline.game.core.ValidationResult;
@@ -265,4 +266,264 @@ class BloodBoundGameEngineTests {
             assertThat(publicPlayer.wounds()).isEqualTo(0);
         }
     }
+
+    @Test
+    void decodeActionAcceptsTargetPlayerIdForUseAbility() {
+        Map<String, Object> payload = Map.of(
+                "type", "USE_ABILITY",
+                "targetPlayerId", "p2"
+        );
+        BloodBoundAction action = engine.decodeAction(payload);
+        assertThat(action.type()).isEqualTo(BloodBoundActionType.USE_ABILITY);
+        assertThat(action.abilityTargetPlayerId()).isEqualTo("p2");
+    }
+
+    @Test
+    void useAbilityAssassinDealsWound() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(2); // Assassin
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setWounds(0);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction ability = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        engine.apply(state, actor, ability, new SeededRandomSource(1L));
+
+        assertThat(p2.getWounds()).isEqualTo(1);
+        assertThat(p1.isHasUsedAbility()).isTrue();
+    }
+
+    @Test
+    void useAbilityAssassinLethalWoundOnLeaderTriggersGameOver() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setClan(BloodClan.ROSE);
+        p1.setRank(2); // Assassin
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setClan(BloodClan.FAN);
+        p2.setRank(1); // Leader
+        p2.setWounds(3); // 1 wound away from capture
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction ability = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        GameResult<BloodBoundGameState, com.partygameonline.game.bloodbound.domain.BloodBoundEvent> result =
+                engine.apply(state, actor, ability, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getCapturedPlayerId()).isEqualTo("p2");
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.ROSE);
+        assertThat(result.finished()).isTrue();
+    }
+
+    @Test
+    void useAbilityAssassinLethalWoundOnNonLeaderTriggersWrongfulCapture() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setClan(BloodClan.ROSE);
+        p1.setRank(2); // Assassin
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p3 = state.player("p3");
+        p3.setClan(BloodClan.FAN);
+        p3.setRank(3); // Non-Leader (Harlequin)
+        p3.setWounds(3);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction ability = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p3");
+        GameResult<BloodBoundGameState, com.partygameonline.game.bloodbound.domain.BloodBoundEvent> result =
+                engine.apply(state, actor, ability, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getCapturedPlayerId()).isEqualTo("p3");
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.FAN); // Wrongful capture -> Defending clan wins
+        assertThat(result.finished()).isTrue();
+    }
+
+    @Test
+    void gameResultFinishedIsTrueWhenGameOverFromAttack() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1");
+        state.player("p1").setClan(BloodClan.ROSE);
+
+        state.setTargetPlayerId("p2");
+        BloodBoundPlayerState p2State = state.player("p2");
+        p2State.setClan(BloodClan.FAN);
+        p2State.setRank(1); // Leader
+        p2State.setWounds(3);
+
+        PlayerContext p2 = PlayerContext.player("p2", "Bob");
+        BloodBoundAction reveal = new BloodBoundAction(
+                null,
+                BloodBoundActionType.REVEAL_WOUND_TOKEN,
+                null,
+                ClueTokenType.RANK,
+                null,
+                null
+        );
+        GameResult<BloodBoundGameState, com.partygameonline.game.bloodbound.domain.BloodBoundEvent> result =
+                engine.apply(state, p2, reveal, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(result.finished()).isTrue();
+    }
+
+    @Test
+    void useAbilityAlchemistHealsWound() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(4); // Alchemist
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setWounds(2);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction heal = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        engine.apply(state, actor, heal, new SeededRandomSource(1L));
+
+        assertThat(p2.getWounds()).isEqualTo(1);
+        assertThat(p1.isHasUsedAbility()).isTrue();
+    }
+
+    @Test
+    void useAbilityGuardianGrantsShield() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(6); // Guardian
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setShielded(false);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction shield = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        engine.apply(state, actor, shield, new SeededRandomSource(1L));
+
+        assertThat(p2.isShielded()).isTrue();
+        assertThat(p1.isHasUsedAbility()).isTrue();
+    }
+
+    @Test
+    void useAbilityMentalistForcesCrestToken() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(5); // Mentalist
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setClan(BloodClan.FAN);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction mentalist = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        engine.apply(state, actor, mentalist, new SeededRandomSource(1L));
+
+        assertThat(p2.getRevealedTokens()).anyMatch(t -> t.type() == ClueTokenType.CREST);
+        assertThat(p1.isHasUsedAbility()).isTrue();
+    }
+
+    @Test
+    void useAbilityHarlequinAddsQuestionToken() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(3); // Harlequin
+        p1.setHasRevealedRank(true);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction harlequin = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
+        engine.apply(state, actor, harlequin, new SeededRandomSource(1L));
+
+        assertThat(p2.getRevealedTokens()).anyMatch(t -> t.type() == ClueTokenType.QUESTION);
+        assertThat(p1.isHasUsedAbility()).isTrue();
+    }
+
+    @Test
+    void friendlyFireLeaderCaptureAwardsVictoryToOpponent() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1"); // Alice (ROSE)
+        state.setTargetPlayerId("p3"); // Charlie (ROSE, Leader rank 1)
+
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setClan(BloodClan.ROSE);
+        BloodBoundPlayerState p3 = state.player("p3");
+        p3.setClan(BloodClan.ROSE);
+        p3.setRank(1);
+        p3.setWounds(3); // 1 more wound to capture
+
+        PlayerContext p3Actor = PlayerContext.player("p3", "Charlie");
+        BloodBoundAction action = new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null);
+        engine.apply(state, p3Actor, action, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getCapturedPlayerId()).isEqualTo("p3");
+        // Rose shot their own Leader -> Opposing clan FAN wins!
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.FAN);
+    }
+
+    @Test
+    void friendlyFireTeammateCaptureAwardsVictoryToOpponent() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1"); // Alice (ROSE)
+        state.setTargetPlayerId("p3"); // Charlie (ROSE, Rank 3 Chameleon)
+
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setClan(BloodClan.ROSE);
+        BloodBoundPlayerState p3 = state.player("p3");
+        p3.setClan(BloodClan.ROSE);
+        p3.setRank(3);
+        p3.setWounds(3); // 1 more wound to capture
+
+        PlayerContext p3Actor = PlayerContext.player("p3", "Charlie");
+        BloodBoundAction action = new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null);
+        engine.apply(state, p3Actor, action, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getCapturedPlayerId()).isEqualTo("p3");
+        // Rose killed their own teammate -> Opposing clan FAN wins!
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.FAN);
+    }
+
+    @Test
+    void berserkerCannotTargetSelf() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(7); // Berserker
+        p1.setHasRevealedRank(true);
+
+        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction selfTarget = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p1");
+        ValidationResult val = engine.validate(state, actor, selfTarget);
+
+        assertThat(val.valid()).isFalse();
+        assertThat(val.errorCode()).isEqualTo("CANNOT_TARGET_SELF");
+    }
+
+    @Test
+    void abandonedVictimDuringWoundAssignmentAutoResolves() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1");
+        state.setTargetPlayerId("p2");
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setWounds(1);
+
+        PlayerContext abandonedPlayer = PlayerContext.player("p2", "Bob");
+        engine.onPlayerAbandoned(state, abandonedPlayer, new SeededRandomSource(1L));
+
+        // Abandoned victim should have taken their wound and revealed token
+        assertThat(p2.getWounds()).isEqualTo(2);
+        assertThat(p2.getRevealedTokens()).isNotEmpty();
+    }
 }
+

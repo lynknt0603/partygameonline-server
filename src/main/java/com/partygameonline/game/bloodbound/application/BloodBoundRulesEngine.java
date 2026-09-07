@@ -89,14 +89,40 @@ public class BloodBoundRulesEngine {
                 if (action.tokenType() == null && state.getIntervenerPlayerId() == null) {
                     return ValidationResult.reject("MISSING_TOKEN_TYPE", "Token type must be chosen");
                 }
+                BloodBoundPlayerState vicPlayer = state.player(victimId);
+                if (vicPlayer != null && action.tokenType() != null && vicPlayer.getRevealedTokens().size() < 3) {
+                    boolean alreadyRevealed = vicPlayer.getRevealedTokens().stream()
+                            .anyMatch(t -> t.type() == action.tokenType());
+                    if (alreadyRevealed) {
+                        return ValidationResult.reject("TOKEN_ALREADY_REVEALED", "This token type has already been revealed");
+                    }
+                }
                 return ValidationResult.ok();
 
             case USE_ABILITY:
+                if (state.getPhase() == BloodBoundPhase.LOOK_LEFT || state.getPhase() == BloodBoundPhase.GAME_OVER) {
+                    return ValidationResult.reject("INVALID_PHASE", "Cannot use ability in current phase");
+                }
+                if (actorPlayer.getRank() == 1) {
+                    return ValidationResult.reject("PASSIVE_ABILITY", "Leader ability is passive");
+                }
                 if (!actorPlayer.isHasRevealedRank()) {
                     return ValidationResult.reject("ABILITY_LOCKED", "Must have revealed rank to use ability");
                 }
                 if (actorPlayer.isHasUsedAbility()) {
                     return ValidationResult.reject("ABILITY_USED", "Ability already used");
+                }
+                String targetId = action.abilityTargetPlayerId() != null
+                        ? action.abilityTargetPlayerId()
+                        : action.targetPlayerId();
+                if ((actorPlayer.getRank() == 2 || actorPlayer.getRank() == 7) && actorId.equals(targetId)) {
+                    return ValidationResult.reject("CANNOT_TARGET_SELF", "Assassin and Berserker cannot target self");
+                }
+                if (targetId != null) {
+                    BloodBoundPlayerState targetPlayer = state.player(targetId);
+                    if (targetPlayer != null && targetPlayer.getWounds() >= 4) {
+                        return ValidationResult.reject("TARGET_ALREADY_CAPTURED", "Target is already captured");
+                    }
                 }
                 return ValidationResult.ok();
 
@@ -163,14 +189,39 @@ public class BloodBoundRulesEngine {
                 break;
 
             case PASS_INTERVENTION:
-                state.setIntervenerPlayerId(null);
-                state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
-                BloodBoundEvent passEvt = BloodBoundEvent.log(
-                        "No intervention. Direct hit!",
-                        "Không có ai can thiệp. Đòn đánh trúng đích!"
-                );
-                events.add(passEvt);
-                state.addLog(passEvt);
+                state.getPassedPlayerIds().add(actorId);
+                long eligibleInterveners = state.getPlayers().stream()
+                        .filter(p -> !p.getPlayerId().equals(state.getDaggerPlayerId())
+                                && !p.getPlayerId().equals(state.getTargetPlayerId())
+                                && p.isConnected()
+                                && !p.isHasRevealedRank()
+                                && p.getWounds() < 4)
+                        .count();
+                long passedCount = state.getPassedPlayerIds().stream()
+                        .filter(pid -> !pid.equals(state.getDaggerPlayerId()) && !pid.equals(state.getTargetPlayerId()))
+                        .count();
+
+                boolean allPassed = eligibleInterveners == 0 || passedCount >= eligibleInterveners;
+                boolean isVictim = actorId.equals(state.getTargetPlayerId());
+
+                if (allPassed || isVictim) {
+                    state.setIntervenerPlayerId(null);
+                    state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+                    state.clearPassedPlayerIds();
+                    BloodBoundEvent passEvt = BloodBoundEvent.log(
+                            "No intervention. Direct hit!",
+                            "Không có ai can thiệp. Đòn đánh trúng đích!"
+                    );
+                    events.add(passEvt);
+                    state.addLog(passEvt);
+                } else {
+                    BloodBoundEvent passEvt = BloodBoundEvent.log(
+                            actorPlayer.getDisplayName() + " passed on intervening.",
+                            actorPlayer.getDisplayName() + " bỏ qua lượt can thiệp."
+                    );
+                    events.add(passEvt);
+                    state.addLog(passEvt);
+                }
                 break;
 
             case REVEAL_WOUND_TOKEN:
@@ -195,6 +246,16 @@ public class BloodBoundRulesEngine {
         }
 
         state.incrementVersion();
+        if (state.getPhase() == BloodBoundPhase.GAME_OVER) {
+            String winnerPlayerId = state.getCapturedPlayerId();
+            for (BloodBoundPlayerState p : state.getPlayers()) {
+                if (p.getClan() == state.getWinnerClan()) {
+                    winnerPlayerId = p.getPlayerId();
+                    break;
+                }
+            }
+            return GameResult.finished(state, events, winnerPlayerId);
+        }
         return GameResult.of(state, events);
     }
 
@@ -247,7 +308,14 @@ public class BloodBoundRulesEngine {
             BloodClan attackerClan = attacker != null ? attacker.getClan() : BloodClan.ROSE;
             boolean isLeader = victim.getRank() == 1;
 
-            BloodClan winningClan = isLeader ? attackerClan : victim.getClan();
+            BloodClan winningClan;
+            if (victim.getClan() == BloodClan.INQUISITOR) {
+                winningClan = BloodClan.INQUISITOR;
+            } else if (attackerClan != victim.getClan() && isLeader) {
+                winningClan = attackerClan;
+            } else {
+                winningClan = (attackerClan == BloodClan.ROSE ? BloodClan.FAN : BloodClan.ROSE);
+            }
             state.setWinnerClan(winningClan);
 
             BloodBoundEvent capEvt = BloodBoundEvent.log(
@@ -289,7 +357,9 @@ public class BloodBoundRulesEngine {
     ) {
         actor.setHasUsedAbility(true);
         int rank = actor.getRank();
-        String targetId = action.abilityTargetPlayerId();
+        String targetId = action.abilityTargetPlayerId() != null
+                ? action.abilityTargetPlayerId()
+                : action.targetPlayerId();
         BloodBoundPlayerState target = targetId != null ? state.player(targetId) : null;
 
         String logEn = "";
@@ -305,6 +375,7 @@ public class BloodBoundRulesEngine {
                     target.addWound();
                     logEn = "Assassin " + actor.getDisplayName() + " deals 1 direct wound to " + target.getDisplayName() + "!";
                     logVi = "Sát thủ " + actor.getDisplayName() + " gây 1 vết thương lên " + target.getDisplayName() + "!";
+                    checkCaptureGameOver(state, actor, target, events);
                 }
                 break;
             case 3: // Harlequin: gắn token ?
@@ -340,6 +411,7 @@ public class BloodBoundRulesEngine {
                     target.addWound();
                     logEn = "Berserker " + actor.getDisplayName() + " strikes back, dealing 1 wound to " + target.getDisplayName() + "!";
                     logVi = "Cuồng Nộ " + actor.getDisplayName() + " phản đòn, gây 1 vết thương lên " + target.getDisplayName() + "!";
+                    checkCaptureGameOver(state, actor, target, events);
                 }
                 break;
             default:
@@ -352,6 +424,43 @@ public class BloodBoundRulesEngine {
             BloodBoundEvent abilityEvt = BloodBoundEvent.log(logEn, logVi);
             events.add(abilityEvt);
             state.addLog(abilityEvt);
+        }
+    }
+
+    private void checkCaptureGameOver(
+            BloodBoundGameState state,
+            BloodBoundPlayerState attacker,
+            BloodBoundPlayerState victim,
+            List<BloodBoundEvent> events
+    ) {
+        if (victim.getWounds() >= 4) {
+            state.setPhase(BloodBoundPhase.GAME_OVER);
+            state.setCapturedPlayerId(victim.getPlayerId());
+
+            boolean isLeader = victim.getRank() == 1;
+            BloodClan attackerClan = attacker.getClan();
+            BloodClan winningClan;
+            if (victim.getClan() == BloodClan.INQUISITOR) {
+                winningClan = BloodClan.INQUISITOR;
+            } else if (attackerClan != victim.getClan() && isLeader) {
+                winningClan = attackerClan;
+            } else {
+                winningClan = (attackerClan == BloodClan.ROSE ? BloodClan.FAN : BloodClan.ROSE);
+            }
+            state.setWinnerClan(winningClan);
+
+            BloodBoundEvent capEvt = BloodBoundEvent.log(
+                    victim.getDisplayName() + " is CAPTURED! Secret identity: " + victim.getClan()
+                            + " (Rank " + victim.getRank() + "). "
+                            + (isLeader ? "Leader was captured! " + winningClan + " wins!"
+                            : "Wrongful capture! " + winningClan + " wins!"),
+                    victim.getDisplayName() + " ĐÃ BỊ BẮT! Danh tính: " + victim.getClan()
+                            + " (Cấp " + victim.getRank() + "). "
+                            + (isLeader ? "Bắt đúng Thủ Lĩnh! " + winningClan + " CHIẾN THẮNG!"
+                            : "Bắt nhầm người vô tội! " + winningClan + " CHIẾN THẮNG!")
+            );
+            events.add(capEvt);
+            state.addLog(capEvt);
         }
     }
 }

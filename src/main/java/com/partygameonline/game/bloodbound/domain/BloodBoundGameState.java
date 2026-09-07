@@ -2,8 +2,10 @@ package com.partygameonline.game.bloodbound.domain;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class BloodBoundGameState {
     public static final int MIN_PLAYERS = 4;
@@ -23,6 +25,7 @@ public class BloodBoundGameState {
 
     private final List<BloodBoundPlayerState> players = new ArrayList<>();
     private final List<BloodBoundEvent> logs = new ArrayList<>();
+    private final Set<String> passedPlayerIds = new HashSet<>();
     private Instant phaseDeadline;
 
     public BloodBoundGameState(String roomId) {
@@ -135,5 +138,13 @@ public class BloodBoundGameState {
 
     public void setPhaseDeadline(Instant phaseDeadline) {
         this.phaseDeadline = phaseDeadline;
+    }
+
+    public Set<String> getPassedPlayerIds() {
+        return passedPlayerIds;
+    }
+
+    public void clearPassedPlayerIds() {
+        this.passedPlayerIds.clear();
     }
 }

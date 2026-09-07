@@ -137,6 +137,9 @@ public class BloodBoundGameEngine
         }
 
         String abilityTargetPlayerId = (String) payload.get("abilityTargetPlayerId");
+        if (abilityTargetPlayerId == null && type == BloodBoundActionType.USE_ABILITY) {
+            abilityTargetPlayerId = targetPlayerId;
+        }
 
         return new BloodBoundAction(
                 commandId,
@@ -161,5 +164,61 @@ public class BloodBoundGameEngine
             RandomSource random
     ) {
         return rulesEngine.apply(state, actor, action, random);
+    }
+
+    @Override
+    public GameResult<BloodBoundGameState, BloodBoundEvent> onPlayerAbandoned(
+            BloodBoundGameState state,
+            PlayerContext player,
+            RandomSource random
+    ) {
+        BloodBoundPlayerState abandoned = state.player(player.playerId());
+        if (abandoned != null) {
+            abandoned.setConnected(false);
+        }
+
+        List<BloodBoundEvent> events = new ArrayList<>();
+        if (state.getPhase() == BloodBoundPhase.WOUND_ASSIGNMENT) {
+            String vicId = state.getIntervenerPlayerId() != null
+                    ? state.getIntervenerPlayerId()
+                    : state.getTargetPlayerId();
+            if (player.playerId().equals(vicId)) {
+                GameResult<BloodBoundGameState, BloodBoundEvent> res = rulesEngine.apply(
+                        state,
+                        player,
+                        new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null),
+                        random
+                );
+                return res;
+            }
+        }
+        if (state.getPhase() != BloodBoundPhase.GAME_OVER && player.playerId().equals(state.getDaggerPlayerId())) {
+            List<BloodBoundPlayerState> players = state.getPlayers();
+            int currentSeat = abandoned != null ? abandoned.getSeat() : 0;
+            int total = players.size();
+            for (int i = 1; i < total; i++) {
+                int nextSeat = (currentSeat + i) % total;
+                for (BloodBoundPlayerState candidate : players) {
+                    if (candidate.getSeat() == nextSeat && candidate.isConnected() && candidate.getWounds() < 4) {
+                        state.setDaggerPlayerId(candidate.getPlayerId());
+                        state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+                        state.setTargetPlayerId(null);
+                        state.setIntervenerPlayerId(null);
+                        BloodBoundEvent passEvt = BloodBoundEvent.log(
+                                player.displayName() + " disconnected. Dagger passed to " + candidate.getDisplayName() + ".",
+                                player.displayName() + " đã mất kết nối. Đoản Kiếm được chuyển cho " + candidate.getDisplayName() + "."
+                        );
+                        events.add(passEvt);
+                        state.addLog(passEvt);
+                        break;
+                    }
+                }
+                if (!player.playerId().equals(state.getDaggerPlayerId())) {
+                    break;
+                }
+            }
+        }
+        state.incrementVersion();
+        return GameResult.of(state, events);
     }
 }
