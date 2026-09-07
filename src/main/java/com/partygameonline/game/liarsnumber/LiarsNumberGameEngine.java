@@ -159,15 +159,16 @@ public final class LiarsNumberGameEngine
             PlayerContext player,
             RandomSource random
     ) {
+        List<LiarsNumberEvent> events = new ArrayList<>();
         if (!state.isFinished() && state.findPlayer(player.playerId()) != null) {
             state.finish(player.playerId(), "ABANDONED");
-            state.addPublicEvent(LiarsNumberEvent.of("LIARS_NUMBER_GAME_OVER", Map.of(
+            addEvent(state, events, "LIARS_NUMBER_GAME_OVER", Map.of(
                     "loserId", player.playerId(),
                     "reason", "ABANDONED"
-            )));
+            ));
             state.bumpVersion();
         }
-        return toResult(state, List.of());
+        return toResult(state, events);
     }
 
     private static void selectCard(

@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.partygameonline.ranking.infrastructure.UserGameStatisticEntity;
+import com.partygameonline.ranking.infrastructure.UserGameStatisticJpaRepository;
 import com.partygameonline.room.infrastructure.RoomRepository;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -35,6 +37,9 @@ class RoomControllerTests {
 
     @Autowired
     private RoomRepository roomRepository;
+
+    @Autowired
+    private UserGameStatisticJpaRepository statisticRepository;
 
     @BeforeEach
     void clearRooms() {
@@ -326,6 +331,62 @@ class RoomControllerTests {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.settings.liarsNumber.turnSeconds").value(0));
+    }
+
+    @Test
+    void leavingLiarsNumberEndsTheMatchAndSettlesLossAndEloImmediately() throws Exception {
+        Guest host = guest("LiarHost");
+        Guest leaver = guest("LiarLeaver");
+        Guest survivor = guest("Survivor");
+        String roomId = read(mockMvc.perform(post("/api/v1/rooms")
+                        .with(bearer(host.token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"gameId":"liars-number","name":"Forfeit table","maxPlayers":3}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn(), "$.id");
+
+        for (Guest player : new Guest[] {leaver, survivor}) {
+            mockMvc.perform(post("/api/v1/rooms/" + roomId + "/join")
+                            .with(bearer(player.token)))
+                    .andExpect(status().isOk());
+        }
+        for (Guest player : new Guest[] {host, leaver, survivor}) {
+            mockMvc.perform(put("/api/v1/rooms/" + roomId + "/ready")
+                            .with(bearer(player.token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"ready\":true}"))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(post("/api/v1/rooms/" + roomId + "/start")
+                        .with(bearer(host.token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_GAME"));
+
+        mockMvc.perform(post("/api/v1/rooms/" + roomId + "/leave")
+                        .with(bearer(leaver.token)))
+                .andExpect(status().isNoContent());
+
+        UserGameStatisticEntity leaverStats = statisticRepository
+                .findByUserIdAndGameCode(leaver.playerId, "liars-number")
+                .orElseThrow();
+        UserGameStatisticEntity hostStats = statisticRepository
+                .findByUserIdAndGameCode(host.playerId, "liars-number")
+                .orElseThrow();
+        UserGameStatisticEntity survivorStats = statisticRepository
+                .findByUserIdAndGameCode(survivor.playerId, "liars-number")
+                .orElseThrow();
+
+        assertThat(leaverStats.getTotalMatch()).isEqualTo(1);
+        assertThat(leaverStats.getTotalWin()).isZero();
+        assertThat(leaverStats.getEloForGame()).isEqualTo(4970);
+        assertThat(hostStats.getTotalMatch()).isEqualTo(1);
+        assertThat(hostStats.getTotalWin()).isEqualTo(1);
+        assertThat(hostStats.getEloForGame()).isEqualTo(5010);
+        assertThat(survivorStats.getTotalMatch()).isEqualTo(1);
+        assertThat(survivorStats.getTotalWin()).isEqualTo(1);
+        assertThat(survivorStats.getEloForGame()).isEqualTo(5010);
     }
 
     @Test

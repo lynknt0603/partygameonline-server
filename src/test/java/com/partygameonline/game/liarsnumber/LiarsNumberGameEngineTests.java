@@ -177,6 +177,23 @@ class LiarsNumberGameEngineTests {
         assertThat(player.penaltyScoreForType(4)).isZero();
     }
 
+    @Test
+    void abandoningPlayerImmediatelyLosesAndPublishesTheGameOverEvent() {
+        LiarsNumberGameState state = engine.createGame(config("p1", "p2", "p3"), new SeededRandomSource(14L));
+
+        var result = engine.onPlayerAbandoned(state, player("p2"), new SeededRandomSource(15L));
+
+        assertThat(result.finished()).isTrue();
+        assertThat(result.winnerPlayerId()).isIn("p1", "p3");
+        assertThat(state.getLoserId()).isEqualTo("p2");
+        assertThat(state.getGameOverReason()).isEqualTo("ABANDONED");
+        assertThat(state.getWinnerPlayerIds()).containsExactlyInAnyOrder("p1", "p3");
+        assertThat(result.events()).singleElement().satisfies(event -> {
+            assertThat(event.type()).isEqualTo("LIARS_NUMBER_GAME_OVER");
+            assertThat(event.payload()).containsEntry("loserId", "p2").containsEntry("reason", "ABANDONED");
+        });
+    }
+
     private static GameConfig config(String... ids) {
         return new GameConfig(
                 LiarsNumberGameManifest.ID,
