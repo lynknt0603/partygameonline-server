@@ -6,9 +6,22 @@ Backend service for Party Game Online, a real-time multiplayer board and party g
 
 | Game | Players | Short description |
 |---|---:|---|
+| **Liar's Number** (`liars-number`) | 2–6 | A single-loser bluffing game where players pass a face-down number card, make a claim from 1 to 8, and challenge or secretly inspect and pass the card. |
 | **Night of Bloodlines** (`night-of-bloodlines`) | 4–11 | A hidden-faction deduction game where Vampires, Werewolves, and Halfbloods use secret role cards, survive the night, and compete for Moon Marks. |
 | **Where's the Bone** (`wheres-the-bone`) | 4–8 | A social-deduction game where dogs wake at different hours, the Bone Thief attempts a secret theft, and the group must identify the culprit through discussion and voting. |
 | **Not In My Pot!** (`not-in-my-pot`) | 3–8 | A bluffing team game where Vegetarians try to complete a valid pot while Meat Eaters secretly sabotage it with harmful ingredients and deceptive declarations. |
+
+## Liar's Number
+
+Liar's Number (Vietnamese: **Ăn Gian Nói Dối**) is a 2–6 player bluffing game built around hidden information and a single active card. The current sender passes the card face down, declares any number from 1 to 8, and may tell the truth or lie. The receiver can challenge the claim by choosing **Truth** or **Lie**. In games with 3–6 players, the receiver may instead inspect the card privately and pass it to a player who has not seen it, making a new claim of their own.
+
+- The deck contains 64 cards: eight number types, each with seven Normal cards and one Roman card.
+- Normal and Roman cards of the same number belong to the same type. A Normal penalty is worth 1 point; a Roman penalty is worth 2 points.
+- Penalties are counted separately for each number type. Reaching 4 points of one type causes a loss in a 3–6 player game.
+- In a 2-player game, 10 random cards are removed unseen, each player receives 27 cards, inspect-and-pass is disabled, and the loss threshold is 5 points of one type.
+- The player who receives the penalty starts the next round. If that player has no card available to start it, they lose.
+- A match ends as soon as one loser is determined; every other player wins.
+- Each winner receives **+10 ELO**. The sole loser is shown a change of **-(starting player count × 10) ELO**, while the persisted rating never drops below zero. The leaderboard records current ELO and total wins.
 
 ## Tech Stack
 
@@ -26,6 +39,7 @@ Backend service for Party Game Online, a real-time multiplayer board and party g
 - src/main/java/com/partygameonline/game/nob: Engine and state projector for Night of Bloodlines
 - src/main/java/com/partygameonline/game/wheresthebone: Engine and state projector for Where's The Bone
 - src/main/java/com/partygameonline/game/notinmypot: Engine and state projector for Not In My Pot!
+- src/main/java/com/partygameonline/game/liarsnumber: Engine, rules, state projector, and API for Liar's Number
 - src/main/java/com/partygameonline/realtime: WebSocket handlers, message envelopes, and live chat
 - src/main/java/com/partygameonline/history: Match history recording and persistence
 - src/main/java/com/partygameonline/ranking: ELO rating policies and calculation
