@@ -18,7 +18,7 @@ public class BloodBoundGameManifest implements GameManifest {
 
     @Override
     public String name() {
-        return "Blood Bound";
+        return "Huyết Thệ (Crimson Vow)";
     }
 
     @Override

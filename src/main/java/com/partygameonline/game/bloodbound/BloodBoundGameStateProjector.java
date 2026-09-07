@@ -80,6 +80,7 @@ public class BloodBoundGameStateProjector implements GameStateProjector<BloodBou
                 state.getDaggerPlayerId(),
                 state.getTargetPlayerId(),
                 state.getIntervenerPlayerId(),
+                state.getForcedAttackTargetId(),
                 playersView,
                 mySecretCard,
                 leftNeighborClue,

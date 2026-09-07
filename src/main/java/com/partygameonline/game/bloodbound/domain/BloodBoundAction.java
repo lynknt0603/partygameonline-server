@@ -11,4 +11,8 @@ public record BloodBoundAction(
     public static BloodBoundAction of(BloodBoundActionType type) {
         return new BloodBoundAction(null, type, null, null, null, null);
     }
+
+    public static BloodBoundAction attack(String targetPlayerId) {
+        return new BloodBoundAction(null, BloodBoundActionType.ATTACK, targetPlayerId, null, null, null);
+    }
 }

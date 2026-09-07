@@ -1,13 +1,20 @@
 package com.partygameonline.game.bloodbound.domain;
 
+import com.partygameonline.game.core.GameEloChange;
+import com.partygameonline.game.core.GameEloChangeSink;
+import com.partygameonline.game.core.GameOutcomeState;
+import com.partygameonline.game.core.GamePlayerOutcome;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-public class BloodBoundGameState {
+public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink {
     public static final int MIN_PLAYERS = 4;
     public static final int MAX_PLAYERS = 8;
 
@@ -19,6 +26,7 @@ public class BloodBoundGameState {
     private String daggerPlayerId;
     private String targetPlayerId;
     private String intervenerPlayerId;
+    private String forcedAttackTargetId;
 
     private BloodClan winnerClan;
     private String capturedPlayerId;
@@ -26,6 +34,7 @@ public class BloodBoundGameState {
     private final List<BloodBoundPlayerState> players = new ArrayList<>();
     private final List<BloodBoundEvent> logs = new ArrayList<>();
     private final Set<String> passedPlayerIds = new HashSet<>();
+    private final Set<String> acknowledgedLookLeftPlayerIds = new HashSet<>();
     private Instant phaseDeadline;
 
     public BloodBoundGameState(String roomId) {
@@ -146,5 +155,56 @@ public class BloodBoundGameState {
 
     public void clearPassedPlayerIds() {
         this.passedPlayerIds.clear();
+    }
+
+    public String getForcedAttackTargetId() {
+        return forcedAttackTargetId;
+    }
+
+    public void setForcedAttackTargetId(String forcedAttackTargetId) {
+        this.forcedAttackTargetId = forcedAttackTargetId;
+    }
+
+    public Set<String> getAcknowledgedLookLeftPlayerIds() {
+        return acknowledgedLookLeftPlayerIds;
+    }
+
+    public void clearAcknowledgedLookLeftPlayerIds() {
+        this.acknowledgedLookLeftPlayerIds.clear();
+    }
+
+    @Override
+    public Set<String> winnerPlayerIds() {
+        if (phase != BloodBoundPhase.GAME_OVER || winnerClan == null) {
+            return Set.of();
+        }
+        return players.stream()
+                .filter(p -> p.getClan() == winnerClan)
+                .map(BloodBoundPlayerState::getPlayerId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    @Override
+    public GamePlayerOutcome playerOutcome(String playerId) {
+        BloodBoundPlayerState p = player(playerId);
+        if (p == null) {
+            return null;
+        }
+        return new GamePlayerOutcome(
+                p.getWounds(),
+                "Rank " + p.getRank(),
+                p.getClan() != null ? p.getClan().name() : null
+        );
+    }
+
+    private Map<String, GameEloChange> eloChanges = Map.of();
+
+    @Override
+    public void recordEloChanges(Map<String, GameEloChange> changes) {
+        this.eloChanges = changes == null ? Map.of() : Map.copyOf(changes);
+    }
+
+    public Map<String, GameEloChange> getEloChanges() {
+        return eloChanges;
     }
 }

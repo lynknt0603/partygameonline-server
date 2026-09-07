@@ -151,7 +151,7 @@ public class BloodBoundGameController {
 
     private static void requireGame(GameRoom room) {
         if (!BloodBoundGameManifest.ID.equals(room.getGameId())) {
-            throw new ApiException("WRONG_GAME", HttpStatus.CONFLICT, "This room is not Blood Bound");
+            throw new ApiException("WRONG_GAME", HttpStatus.CONFLICT, "This room is not Huyết Thệ (Crimson Vow)");
         }
     }
 

@@ -66,13 +66,14 @@ class BloodBoundGameEngineTests {
     @Test
     void lookLeftAcknowledgeTransitionsToAttack() {
         BloodBoundGameState state = createTestGame(6);
-        PlayerContext actor = PlayerContext.player("p1", "Alice");
+        for (String pid : List.of("p1", "p2", "p3", "p4", "p5", "p6")) {
+            PlayerContext actor = PlayerContext.player(pid, pid);
+            BloodBoundAction action = BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK);
+            ValidationResult val = engine.validate(state, actor, action);
+            assertThat(val.valid()).isTrue();
+            engine.apply(state, actor, action, new SeededRandomSource(1L));
+        }
 
-        BloodBoundAction action = BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK);
-        ValidationResult val = engine.validate(state, actor, action);
-        assertThat(val.valid()).isTrue();
-
-        engine.apply(state, actor, action, new SeededRandomSource(1L));
         assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.ATTACK_CHOICE);
     }
 
@@ -509,7 +510,7 @@ class BloodBoundGameEngineTests {
     }
 
     @Test
-    void abandonedVictimDuringWoundAssignmentAutoResolves() {
+    void abandonedVictimDuringWoundAssignmentAutoResolvesAndHandsOffDagger() {
         BloodBoundGameState state = createTestGame(6);
         state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
         state.setDaggerPlayerId("p1");
@@ -524,6 +525,132 @@ class BloodBoundGameEngineTests {
         // Abandoned victim should have taken their wound and revealed token
         assertThat(p2.getWounds()).isEqualTo(2);
         assertThat(p2.getRevealedTokens()).isNotEmpty();
+        assertThat(p2.isConnected()).isFalse();
+
+        // Dagger MUST NOT remain with the disconnected player
+        assertThat(state.getDaggerPlayerId()).isNotEqualTo("p2");
+        assertThat(state.player(state.getDaggerPlayerId()).isConnected()).isTrue();
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.ATTACK_CHOICE);
+    }
+
+    @Test
+    void rejectsQuestionTokenOnWoundReveal() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1");
+        state.setTargetPlayerId("p2");
+
+        PlayerContext victim = PlayerContext.player("p2", "Bob");
+        BloodBoundAction cheatAction = new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.QUESTION, null, null);
+        ValidationResult result = engine.validate(state, victim, cheatAction);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorCode()).isEqualTo("INVALID_TOKEN_TYPE");
+    }
+
+    @Test
+    void gameOutcomeStateReturnsAllWinningFactionPlayers() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1");
+        state.setTargetPlayerId("p2");
+
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setClan(BloodClan.FAN);
+
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setClan(BloodClan.ROSE);
+        p2.setRank(1);
+        p2.setWounds(3);
+
+        PlayerContext p2Actor = PlayerContext.player("p2", "Bob");
+        BloodBoundAction action = new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null);
+        engine.apply(state, p2Actor, action, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.FAN);
+
+        com.partygameonline.game.core.GameOutcomeState outcome = state;
+        java.util.Set<String> winners = outcome.winnerPlayerIds();
+        assertThat(winners).isNotEmpty();
+
+        for (BloodBoundPlayerState player : state.getPlayers()) {
+            if (player.getClan() == BloodClan.FAN) {
+                assertThat(winners).contains(player.getPlayerId());
+                com.partygameonline.game.core.GamePlayerOutcome po = outcome.playerOutcome(player.getPlayerId());
+                assertThat(po).isNotNull();
+                assertThat(po.bloodline()).isEqualTo("FAN");
+            } else {
+                assertThat(winners).doesNotContain(player.getPlayerId());
+            }
+        }
+    }
+
+    @Test
+    void useAbilityRank8CourtesanForcesAttackTarget() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+        state.setDaggerPlayerId("p1");
+
+        BloodBoundPlayerState p1 = state.player("p1");
+        p1.setRank(8);
+        p1.setHasRevealedRank(true);
+
+        PlayerContext p1Actor = PlayerContext.player("p1", "Alice");
+        BloodBoundAction ability = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p3");
+        engine.apply(state, p1Actor, ability, new SeededRandomSource(1L));
+
+        assertThat(p1.isHasUsedAbility()).isTrue();
+        assertThat(state.getForcedAttackTargetId()).isEqualTo("p3");
+
+        // Attacking wrong target is rejected
+        BloodBoundAction wrongTarget = BloodBoundAction.attack("p2");
+        ValidationResult invalidResult = engine.validate(state, p1Actor, wrongTarget);
+        assertThat(invalidResult.valid()).isFalse();
+        assertThat(invalidResult.errorCode()).isEqualTo("FORCED_TARGET");
+
+        // Attacking forced target is valid
+        BloodBoundAction correctTarget = BloodBoundAction.attack("p3");
+        ValidationResult validResult = engine.validate(state, p1Actor, correctTarget);
+        assertThat(validResult.valid()).isTrue();
+
+        // After attack, forced target is cleared
+        engine.apply(state, p1Actor, correctTarget, new SeededRandomSource(1L));
+        assertThat(state.getForcedAttackTargetId()).isNull();
+    }
+
+    @Test
+    void lookLeftRequiresAllConnectedPlayersToAcknowledge() {
+        BloodBoundGameState state = createTestGame(6);
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.LOOK_LEFT);
+
+        // Player 1 acknowledges
+        engine.apply(state, PlayerContext.player("p1", "Alice"), BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK), new SeededRandomSource(1L));
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.LOOK_LEFT);
+        assertThat(state.getAcknowledgedLookLeftPlayerIds()).containsExactly("p1");
+
+        // Next 4 players acknowledge
+        List.of("p2", "p3", "p4", "p5").forEach(pid ->
+                engine.apply(state, PlayerContext.player(pid, pid), BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK), new SeededRandomSource(1L))
+        );
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.LOOK_LEFT);
+
+        // Last player acknowledges -> transitions to ATTACK_CHOICE
+        engine.apply(state, PlayerContext.player("p6", "Frank"), BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK), new SeededRandomSource(1L));
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.ATTACK_CHOICE);
+    }
+
+    @Test
+    void interventionWindowAutoPassesOnDeadlineExpiry() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.INTERVENTION_WINDOW);
+        state.setDaggerPlayerId("p1");
+        state.setTargetPlayerId("p2");
+        state.setPhaseDeadline(java.time.Instant.now().minusSeconds(1));
+
+        engine.checkPhaseTimeout(state, java.time.Instant.now());
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.WOUND_ASSIGNMENT);
+        assertThat(state.getPhaseDeadline()).isNull();
     }
 }
-

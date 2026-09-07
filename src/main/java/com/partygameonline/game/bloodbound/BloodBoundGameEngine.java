@@ -41,7 +41,7 @@ public class BloodBoundGameEngine
     public BloodBoundGameState createGame(GameConfig config, RandomSource random) {
         int count = config.playerIds().size();
         if (count < BloodBoundGameState.MIN_PLAYERS || count > BloodBoundGameState.MAX_PLAYERS) {
-            throw new IllegalArgumentException("Blood Bound requires between "
+            throw new IllegalArgumentException("Huyết Thệ requires between "
                     + BloodBoundGameState.MIN_PLAYERS + " and "
                     + BloodBoundGameState.MAX_PLAYERS + " players");
         }
@@ -189,12 +189,18 @@ public class BloodBoundGameEngine
                         new BloodBoundAction(null, BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null),
                         random
                 );
-                return res;
+                events.addAll(res.events());
+                if (state.getPhase() == BloodBoundPhase.GAME_OVER) {
+                    return res;
+                }
             }
         }
-        if (state.getPhase() != BloodBoundPhase.GAME_OVER && player.playerId().equals(state.getDaggerPlayerId())) {
+
+        BloodBoundPlayerState currentDaggerHolder = state.player(state.getDaggerPlayerId());
+        boolean daggerHolderDisconnected = currentDaggerHolder != null && !currentDaggerHolder.isConnected();
+        if (state.getPhase() != BloodBoundPhase.GAME_OVER && daggerHolderDisconnected) {
             List<BloodBoundPlayerState> players = state.getPlayers();
-            int currentSeat = abandoned != null ? abandoned.getSeat() : 0;
+            int currentSeat = currentDaggerHolder.getSeat();
             int total = players.size();
             for (int i = 1; i < total; i++) {
                 int nextSeat = (currentSeat + i) % total;
@@ -205,20 +211,24 @@ public class BloodBoundGameEngine
                         state.setTargetPlayerId(null);
                         state.setIntervenerPlayerId(null);
                         BloodBoundEvent passEvt = BloodBoundEvent.log(
-                                player.displayName() + " disconnected. Dagger passed to " + candidate.getDisplayName() + ".",
-                                player.displayName() + " đã mất kết nối. Đoản Kiếm được chuyển cho " + candidate.getDisplayName() + "."
+                                currentDaggerHolder.getDisplayName() + " is disconnected. Dagger passed to " + candidate.getDisplayName() + ".",
+                                currentDaggerHolder.getDisplayName() + " đã mất kết nối. Đoản Kiếm được chuyển cho " + candidate.getDisplayName() + "."
                         );
                         events.add(passEvt);
                         state.addLog(passEvt);
                         break;
                     }
                 }
-                if (!player.playerId().equals(state.getDaggerPlayerId())) {
+                if (!currentDaggerHolder.getPlayerId().equals(state.getDaggerPlayerId())) {
                     break;
                 }
             }
         }
         state.incrementVersion();
         return GameResult.of(state, events);
+    }
+
+    public GameResult<BloodBoundGameState, BloodBoundEvent> checkPhaseTimeout(BloodBoundGameState state, java.time.Instant now) {
+        return rulesEngine.checkPhaseTimeout(state, now);
     }
 }

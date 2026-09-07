@@ -14,6 +14,7 @@ public record BloodBoundView(
         String daggerHolderPlayerId,
         String currentTargetPlayerId,
         String intervenedByPlayerId,
+        String forcedAttackTargetId,
         List<BloodBoundPublicPlayerView> players,
         BloodBoundSecretCardView mySecretCard,
         BloodBoundClueView leftNeighborClue,
