@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 
 public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink {
     public static final int MIN_PLAYERS = 4;
-    public static final int MAX_PLAYERS = 8;
+    public static final int MAX_PLAYERS = 16;
 
     private final String roomId;
     private int version = 1;
@@ -147,6 +147,12 @@ public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink 
 
     public void setPhaseDeadline(Instant phaseDeadline) {
         this.phaseDeadline = phaseDeadline;
+    }
+
+    public boolean timeoutIsDue(Instant now) {
+        return phase == BloodBoundPhase.INTERVENTION_WINDOW
+                && phaseDeadline != null
+                && !now.isBefore(phaseDeadline);
     }
 
     public Set<String> getPassedPlayerIds() {

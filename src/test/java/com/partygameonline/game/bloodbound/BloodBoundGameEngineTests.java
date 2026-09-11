@@ -16,6 +16,7 @@ import com.partygameonline.game.bloodbound.domain.BloodBoundPhase;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPlayerState;
 import com.partygameonline.game.bloodbound.domain.BloodClan;
 import com.partygameonline.game.bloodbound.domain.ClueTokenType;
+import com.partygameonline.game.bloodbound.domain.RevealedToken;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -114,18 +115,104 @@ class BloodBoundGameEngineTests {
     }
 
     @Test
-    void interventionWindowAllowsPass() {
+    void interventionWindowRequiresAllEligiblePlayersToPass() {
         BloodBoundGameState state = createTestGame(6);
         state.setPhase(BloodBoundPhase.INTERVENTION_WINDOW);
+        state.setDaggerPlayerId("p1");
         state.setTargetPlayerId("p2");
+
+        // Target cannot pass
         PlayerContext p2 = PlayerContext.player("p2", "Bob");
-
         BloodBoundAction pass = BloodBoundAction.of(BloodBoundActionType.PASS_INTERVENTION);
-        engine.apply(state, p2, pass, new SeededRandomSource(1L));
+        ValidationResult targetValidation = engine.validate(state, p2, pass);
+        assertThat(targetValidation.valid()).isFalse();
+        assertThat(targetValidation.errorCode()).isEqualTo("CANNOT_INTERVENE");
 
+        // Attacker cannot pass
+        PlayerContext p1 = PlayerContext.player("p1", "Alice");
+        ValidationResult attackerValidation = engine.validate(state, p1, pass);
+        assertThat(attackerValidation.valid()).isFalse();
+        assertThat(attackerValidation.errorCode()).isEqualTo("CANNOT_INTERVENE");
+
+        // Player who revealed rank cannot pass
+        state.player("p3").setHasRevealedRank(true);
+        PlayerContext p3_special = PlayerContext.player("p3", "p3");
+        ValidationResult rankRevealedValidation = engine.validate(state, p3_special, pass);
+        assertThat(rankRevealedValidation.valid()).isFalse();
+        assertThat(rankRevealedValidation.errorCode()).isEqualTo("CANNOT_INTERVENE");
+        state.player("p3").setHasRevealedRank(false);
+
+        // Eligible players p3, p4, p5 pass one by one
+        for (String pid : List.of("p3", "p4", "p5")) {
+            PlayerContext p = PlayerContext.player(pid, pid);
+            assertThat(engine.validate(state, p, pass).valid()).isTrue();
+            engine.apply(state, p, pass, new SeededRandomSource(1L));
+            assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.INTERVENTION_WINDOW);
+        }
+
+        // Last eligible player p6 passes -> window closes
+        PlayerContext p6 = PlayerContext.player("p6", "p6");
+        engine.apply(state, p6, pass, new SeededRandomSource(1L));
         assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.WOUND_ASSIGNMENT);
         assertThat(state.getIntervenerPlayerId()).isNull();
     }
+
+    @Test
+    void timeoutActionTransitionsInterventionWindowToWoundAssignment() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.INTERVENTION_WINDOW);
+        state.setDaggerPlayerId("p1");
+        state.setTargetPlayerId("p2");
+        state.setPhaseDeadline(java.time.Instant.now().minusSeconds(1));
+
+        PlayerContext systemActor = PlayerContext.player("p2", "Bob");
+        BloodBoundAction timeoutAction = BloodBoundAction.of(BloodBoundActionType.TIMEOUT);
+        assertThat(engine.validate(state, systemActor, timeoutAction).valid()).isTrue();
+
+        engine.apply(state, systemActor, timeoutAction, new SeededRandomSource(1L));
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.WOUND_ASSIGNMENT);
+        assertThat(state.getPhaseDeadline()).isNull();
+    }
+
+    @Test
+    void questionTokenDoesNotBypassClueDuplicatePrevention() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setTargetPlayerId("p2");
+        BloodBoundPlayerState p2State = state.player("p2");
+        assertThat(p2State).isNotNull();
+
+        // Target received QUESTION token from Harlequin, plus COLOR and CREST tokens from previous wounds
+        p2State.addRevealedToken(new RevealedToken(ClueTokenType.QUESTION, "?"));
+        p2State.addRevealedToken(new RevealedToken(ClueTokenType.COLOR, "RED"));
+        p2State.addRevealedToken(new RevealedToken(ClueTokenType.CREST, "ROSE-CREST"));
+
+        PlayerContext p2 = PlayerContext.player("p2", "Bob");
+
+        // Attempting to reveal COLOR again must be REJECTED
+        BloodBoundAction revealColorAgain = new BloodBoundAction(
+                "cmd1", BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.COLOR, null, null
+        );
+        ValidationResult colorResult = engine.validate(state, p2, revealColorAgain);
+        assertThat(colorResult.valid()).isFalse();
+        assertThat(colorResult.errorCode()).isEqualTo("TOKEN_ALREADY_REVEALED");
+
+        // Attempting to reveal CREST again must be REJECTED
+        BloodBoundAction revealCrestAgain = new BloodBoundAction(
+                "cmd2", BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.CREST, null, null
+        );
+        ValidationResult crestResult = engine.validate(state, p2, revealCrestAgain);
+        assertThat(crestResult.valid()).isFalse();
+        assertThat(crestResult.errorCode()).isEqualTo("TOKEN_ALREADY_REVEALED");
+
+        // Revealing RANK must be ACCEPTED
+        BloodBoundAction revealRank = new BloodBoundAction(
+                "cmd3", BloodBoundActionType.REVEAL_WOUND_TOKEN, null, ClueTokenType.RANK, null, null
+        );
+        ValidationResult rankResult = engine.validate(state, p2, revealRank);
+        assertThat(rankResult.valid()).isTrue();
+    }
+
 
     @Test
     void interveneForcesRankTokenAndImmediateWound() {
@@ -244,6 +331,34 @@ class BloodBoundGameEngineTests {
 
         assertThat(state2.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
         assertThat(state2.getWinnerClan()).isEqualTo(BloodClan.FAN); // Wrongful capture penalty!
+    }
+
+    @Test
+    void captureInquisitorAwardsSoloVictoryToInquisitor() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState p2 = state.player("p2");
+        p2.setClan(BloodClan.INQUISITOR);
+        p2.setRank(8);
+        p2.setWounds(3);
+
+        state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
+        state.setDaggerPlayerId("p1"); // Rose attacker
+        state.setTargetPlayerId("p2"); // Inquisitor victim
+
+        PlayerContext p2Context = PlayerContext.player("p2", "Bob");
+        BloodBoundAction reveal = new BloodBoundAction(
+                null,
+                BloodBoundActionType.REVEAL_WOUND_TOKEN,
+                null,
+                ClueTokenType.RANK,
+                null,
+                null
+        );
+        engine.apply(state, p2Context, reveal, new SeededRandomSource(1L));
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.GAME_OVER);
+        assertThat(state.getCapturedPlayerId()).isEqualTo("p2");
+        assertThat(state.getWinnerClan()).isEqualTo(BloodClan.INQUISITOR);
     }
 
     @Test

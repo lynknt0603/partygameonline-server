@@ -226,6 +226,7 @@ public class RoomService {
             Map<String, Object> notInMyPotSettings,
             Map<String, Object> wheresTheBoneSettings,
             Map<String, Object> liarsNumberSettings,
+            Map<String, Object> bloodBoundSettings,
             Boolean locked,
             Integer maxPlayers
     ) {
@@ -233,7 +234,11 @@ public class RoomService {
         return roomLocks.withRoom(roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
             if (!room.getHostPlayerId().equals(principal.playerId())) {
-                throw RoomException.notHost();
+                if (room.getHostPlayerId().startsWith("bot-") && room.findPlayer(principal.playerId()).isPresent()) {
+                    room.transferHost(principal.playerId());
+                } else {
+                    throw RoomException.notHost();
+                }
             }
             GameManifest game = gameRegistry.findById(room.getGameId())
                     .orElseThrow(RoomException::invalidSettings);
@@ -249,11 +254,35 @@ public class RoomService {
             requested.put("notInMyPot", settingOrCurrent(notInMyPotSettings, "notInMyPot", room));
             requested.put("wheresTheBone", settingOrCurrent(wheresTheBoneSettings, "wheresTheBone", room));
             requested.put("liarsNumber", settingOrCurrent(liarsNumberSettings, "liarsNumber", room));
+            requested.put("bloodBound", settingOrCurrent(bloodBoundSettings, "bloodBound", room));
             next.putAll(game.normalizeRoomSettings(requested));
             room.replaceSettings(next);
             realtimePublisher.roomSettingsChanged(room);
             return room;
         });
+    }
+
+    public GameRoom updateSettings(
+            PlayerPrincipal principal,
+            String rawRoomId,
+            Map<String, Object> nobSettings,
+            Map<String, Object> notInMyPotSettings,
+            Map<String, Object> wheresTheBoneSettings,
+            Map<String, Object> liarsNumberSettings,
+            Boolean locked,
+            Integer maxPlayers
+    ) {
+        return updateSettings(
+                principal,
+                rawRoomId,
+                nobSettings,
+                notInMyPotSettings,
+                wheresTheBoneSettings,
+                liarsNumberSettings,
+                Map.of(),
+                locked,
+                maxPlayers
+        );
     }
 
     /**
@@ -306,6 +335,62 @@ public class RoomService {
         });
     }
 
+    public GameRoom addBot(PlayerPrincipal principal, String rawRoomId) {
+        return addBot(principal, rawRoomId, "NORMAL");
+    }
+
+    public GameRoom addBot(PlayerPrincipal principal, String rawRoomId, String botType) {
+        RoomId roomId = RoomId.parse(rawRoomId);
+        boolean isAi = "AI".equalsIgnoreCase(botType);
+        return roomLocks.withRoom(roomId.value(), () -> {
+            GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
+            if (!room.getHostPlayerId().equals(principal.playerId())) {
+                if (room.getHostPlayerId().startsWith("bot-") && room.findPlayer(principal.playerId()).isPresent()) {
+                    room.transferHost(principal.playerId());
+                } else {
+                    throw RoomException.notHost();
+                }
+            }
+            if (room.getStatus() != com.partygameonline.room.domain.RoomStatus.WAITING) {
+                throw RoomException.alreadyStarted();
+            }
+            if (room.getPlayers().size() >= room.getMaxPlayers()) {
+                throw RoomException.full();
+            }
+
+            String botId;
+            String botName;
+            if (isAi) {
+                int aiCount = (int) room.getPlayers().stream()
+                        .filter(p -> p.getPlayerId().startsWith("bot-ai-"))
+                        .count();
+                String[] aiNames = {
+                    "🧠 Cyber", "🧠 Cortex", "🧠 Nexus", "🧠 Oracle",
+                    "🧠 Valkyrie", "🧠 Titan", "🧠 Genesis", "🧠 Singularity"
+                };
+                botName = aiCount < aiNames.length ? aiNames[aiCount] : "🧠 AI " + (aiCount + 1);
+                botId = "bot-ai-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            } else {
+                int botCount = (int) room.getPlayers().stream()
+                        .filter(p -> p.getPlayerId().startsWith("bot-reg-") || (p.getPlayerId().startsWith("bot-") && !p.getPlayerId().startsWith("bot-ai-")))
+                        .count();
+                String[] botNames = {
+                    "🤖 Alpha", "🤖 Bravo", "🤖 Charlie", "🤖 Delta",
+                    "🤖 Echo", "🤖 Foxtrot", "🤖 Golf", "🤖 Hotel", "🤖 India"
+                };
+                botName = botCount < botNames.length ? botNames[botCount] : "🤖 Bot " + (botCount + 1);
+                botId = "bot-reg-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            }
+
+            room.join(botId, botName, null);
+            room.setReady(botId, true);
+            roomRepository.indexPlayer(botId, roomId);
+            realtimePublisher.playerJoined(room, botId);
+            realtimePublisher.playerReadyChanged(room, botId, true);
+            return room;
+        });
+    }
+
     public void close(PlayerPrincipal principal, String rawRoomId) {
         RoomId roomId = RoomId.parse(rawRoomId);
         roomLocks.withRoom(roomId.value(), () -> {
@@ -325,6 +410,13 @@ public class RoomService {
         RoomId roomId = RoomId.parse(rawRoomId);
         return roomLocks.withRoom(roomId.value(), () -> {
             GameRoom room = roomRepository.findById(roomId).orElseThrow(RoomException::notFound);
+            if (!room.getHostPlayerId().equals(principal.playerId())) {
+                if (room.getHostPlayerId().startsWith("bot-") && room.findPlayer(principal.playerId()).isPresent()) {
+                    room.transferHost(principal.playerId());
+                } else {
+                    throw RoomException.notHost();
+                }
+            }
             GameManifest game = requireEnabledGame(room.getGameId());
             int requiredPlayers = game.requiredPlayers(room.getMaxPlayers());
             room.start(principal.playerId(), requiredPlayers);

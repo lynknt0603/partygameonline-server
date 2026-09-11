@@ -74,7 +74,9 @@ public final class BloodBoundEloCalculator {
 
         long loserCapacity = loserRatings.stream().mapToLong(PlayerRating::elo).sum();
         int pool = (int) Math.min(targetPool, loserCapacity);
-        pool = Math.max(pool, Math.max(winnerCount, loserCount));
+        if (loserCapacity >= Math.max(winnerCount, loserCount)) {
+            pool = Math.max(pool, Math.max(winnerCount, loserCount));
+        }
 
         int[] winnerAllocations = allocate(pool, desiredWinners, null);
         int[] loserCaps = desiredLosers.stream().mapToInt(c -> c.player().elo()).toArray();
@@ -117,14 +119,17 @@ public final class BloodBoundEloCalculator {
     }
 
     private static int[] allocate(int pool, List<DesiredChange> changes, int[] caps) {
-        if (changes.isEmpty() || pool < changes.size()) {
-            throw new IllegalArgumentException("The ELO pool is too small to give every player a signed delta");
+        if (changes.isEmpty()) {
+            throw new IllegalArgumentException("The ELO pool changes list cannot be empty");
+        }
+        if (pool <= 0) {
+            return new int[changes.size()];
         }
         int[] allocation = new int[changes.size()];
         int[] remainingCaps = new int[changes.size()];
         for (int i = 0; i < changes.size(); i++) {
             int cap = caps == null ? Integer.MAX_VALUE : caps[i];
-            remainingCaps[i] = Math.max(1, cap);
+            remainingCaps[i] = Math.max(0, cap);
         }
 
         int remaining = pool;
@@ -188,9 +193,12 @@ public final class BloodBoundEloCalculator {
             remaining = 0;
         }
 
-        // Ensure every participant gets at least 1 point
+        // Ensure every participant with available capacity gets at least 1 point
         for (int i = 0; i < allocation.length; i++) {
             if (allocation[i] > 0) {
+                continue;
+            }
+            if (caps != null && caps[i] <= 0) {
                 continue;
             }
             int donor = -1;
@@ -217,15 +225,22 @@ public final class BloodBoundEloCalculator {
         int loserSum = 0;
         for (EloChange change : result) {
             if (change.winner()) {
-                if (change.actualDelta() <= 0) {
-                    throw new IllegalStateException("Winner did not gain ELO: " + change.playerId());
+                if (change.actualDelta() < 0) {
+                    throw new IllegalStateException("Winner lost ELO: " + change.playerId());
                 }
                 winnerSum += change.actualDelta();
             } else {
-                if (change.actualDelta() >= 0) {
-                    throw new IllegalStateException("Loser did not lose ELO: " + change.playerId());
+                if (change.actualDelta() > 0) {
+                    throw new IllegalStateException("Loser gained ELO: " + change.playerId());
                 }
                 loserSum += -change.actualDelta();
+            }
+            if (change.newElo() != change.oldElo() + change.actualDelta()) {
+                throw new IllegalStateException("Inconsistent ELO transition for player " + change.playerId()
+                        + ": old=" + change.oldElo() + ", delta=" + change.actualDelta() + ", new=" + change.newElo());
+            }
+            if (change.newElo() < MIN_ELO) {
+                throw new IllegalStateException("Player rating dropped below minimum: " + change.playerId());
             }
         }
         if (winnerSum != loserSum) {

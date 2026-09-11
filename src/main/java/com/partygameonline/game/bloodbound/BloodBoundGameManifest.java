@@ -38,11 +38,12 @@ public class BloodBoundGameManifest implements GameManifest {
 
     @Override
     public Map<String, Object> defaultRoomSettings() {
-        return Map.of();
+        return Map.of("bloodBound", com.partygameonline.game.bloodbound.domain.BloodBoundSettings.defaults().toMap());
     }
 
     @Override
     public Map<String, Object> normalizeRoomSettings(Map<String, Object> requested) {
-        return Map.of();
+        Object raw = requested == null ? null : requested.get("bloodBound");
+        return Map.of("bloodBound", com.partygameonline.game.bloodbound.domain.BloodBoundSettings.fromMap(raw).toMap());
     }
 }

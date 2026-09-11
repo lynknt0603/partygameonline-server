@@ -82,6 +82,21 @@ public class BloodBoundRulesEngine {
                 if (state.getPhase() != BloodBoundPhase.INTERVENTION_WINDOW) {
                     return ValidationResult.reject("INVALID_PHASE", "Not in intervention window");
                 }
+                if (actorId.equals(state.getDaggerPlayerId())) {
+                    return ValidationResult.reject("CANNOT_INTERVENE", "Attacker cannot pass intervention");
+                }
+                if (actorId.equals(state.getTargetPlayerId())) {
+                    return ValidationResult.reject("CANNOT_INTERVENE", "Target cannot pass intervention");
+                }
+                if (actorPlayer.isHasRevealedRank() || actorPlayer.getWounds() >= 4) {
+                    return ValidationResult.reject("CANNOT_INTERVENE", "Player already revealed rank or captured");
+                }
+                return ValidationResult.ok();
+
+            case TIMEOUT:
+                if (!state.timeoutIsDue(java.time.Instant.now())) {
+                    return ValidationResult.reject("TIMEOUT_NOT_DUE", "Intervention timeout is not due");
+                }
                 return ValidationResult.ok();
 
             case REVEAL_WOUND_TOKEN:
@@ -106,10 +121,15 @@ public class BloodBoundRulesEngine {
                     return ValidationResult.reject("INVALID_TOKEN_TYPE", "Must choose COLOR, CREST, or RANK");
                 }
                 BloodBoundPlayerState vicPlayer = state.player(victimId);
-                if (vicPlayer != null && action.tokenType() != null && vicPlayer.getRevealedTokens().size() < 3) {
+                if (vicPlayer != null && action.tokenType() != null) {
                     boolean alreadyRevealed = vicPlayer.getRevealedTokens().stream()
                             .anyMatch(t -> t.type() == action.tokenType());
-                    if (alreadyRevealed) {
+                    long distinctCluesRevealed = vicPlayer.getRevealedTokens().stream()
+                            .map(RevealedToken::type)
+                            .filter(t -> t == ClueTokenType.COLOR || t == ClueTokenType.CREST || t == ClueTokenType.RANK)
+                            .distinct()
+                            .count();
+                    if (alreadyRevealed && distinctCluesRevealed < 3) {
                         return ValidationResult.reject("TOKEN_ALREADY_REVEALED", "This token type has already been revealed");
                     }
                 }
@@ -236,9 +256,8 @@ public class BloodBoundRulesEngine {
                         .count();
 
                 boolean allPassed = eligibleInterveners == 0 || passedCount >= eligibleInterveners;
-                boolean isVictim = actorId.equals(state.getTargetPlayerId());
 
-                if (allPassed || isVictim) {
+                if (allPassed) {
                     state.setIntervenerPlayerId(null);
                     state.setPhase(BloodBoundPhase.WOUND_ASSIGNMENT);
                     state.setPhaseDeadline(null);
@@ -258,6 +277,9 @@ public class BloodBoundRulesEngine {
                     state.addLog(passEvt);
                 }
                 break;
+
+            case TIMEOUT:
+                return checkPhaseTimeout(state, java.time.Instant.now());
 
             case REVEAL_WOUND_TOKEN:
                 String vicId = state.getIntervenerPlayerId() != null

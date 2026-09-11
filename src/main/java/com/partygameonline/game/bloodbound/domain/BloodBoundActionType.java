@@ -8,5 +8,6 @@ public enum BloodBoundActionType {
     REVEAL_WOUND_TOKEN,
     USE_ABILITY,
     PASS_DAGGER,
-    CAPTURE
+    CAPTURE,
+    TIMEOUT
 }

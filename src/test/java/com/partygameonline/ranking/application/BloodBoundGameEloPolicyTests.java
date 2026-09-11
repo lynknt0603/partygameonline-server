@@ -214,4 +214,61 @@ class BloodBoundGameEloPolicyTests {
 
         assertThat(result.changes().get("l1").newElo()).isNotNegative();
     }
+
+    @Test
+    void zeroEloLoserDoesNotGenerateFreeEloForWinner() {
+        EloRatingService.EloMatchResult result = policy.calculateMatch(
+                List.of(
+                        new EloRatingService.PlayerOutcome("w1", true),
+                        new EloRatingService.PlayerOutcome("l1", false)
+                ),
+                Map.of(
+                        "w1", 5000,
+                        "l1", 0
+                ),
+                null
+        );
+
+        var winnerChange = result.changes().get("w1");
+        var loserChange = result.changes().get("l1");
+
+        assertThat(loserChange.newElo()).isEqualTo(0);
+        assertThat(loserChange.eloDelta()).isEqualTo(0);
+        assertThat(winnerChange.eloDelta()).isEqualTo(0);
+        assertThat(winnerChange.newElo()).isEqualTo(5000);
+
+        int totalDelta = result.changes().values().stream().mapToInt(EloRatingService.EloChange::eloDelta).sum();
+        assertThat(totalDelta).isZero();
+    }
+
+    @Test
+    void mixedZeroAndPositiveEloLosersPreserveZeroSum() {
+        EloRatingService.EloMatchResult result = policy.calculateMatch(
+                List.of(
+                        new EloRatingService.PlayerOutcome("w1", true),
+                        new EloRatingService.PlayerOutcome("l1", false),
+                        new EloRatingService.PlayerOutcome("l2", false)
+                ),
+                Map.of(
+                        "w1", 5000,
+                        "l1", 0,
+                        "l2", 100
+                ),
+                null
+        );
+
+        var l1 = result.changes().get("l1");
+        var l2 = result.changes().get("l2");
+        var w1 = result.changes().get("w1");
+
+        assertThat(l1.newElo()).isEqualTo(0);
+        assertThat(l1.eloDelta()).isEqualTo(0);
+        assertThat(l2.eloDelta()).isNegative();
+        assertThat(l2.newElo()).isEqualTo(100 + l2.eloDelta());
+        assertThat(w1.eloDelta()).isEqualTo(-l2.eloDelta());
+        assertThat(w1.newElo()).isEqualTo(5000 + w1.eloDelta());
+
+        int totalDelta = result.changes().values().stream().mapToInt(EloRatingService.EloChange::eloDelta).sum();
+        assertThat(totalDelta).isZero();
+    }
 }

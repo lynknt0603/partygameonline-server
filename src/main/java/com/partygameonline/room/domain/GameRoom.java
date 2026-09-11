@@ -182,6 +182,15 @@ public class GameRoom {
                 avatarUrl,
                 PlayerLobbyState.CONNECTED
         ));
+        if (hostPlayerId.startsWith("bot-") && !playerId.startsWith("bot-")) {
+            hostPlayerId = playerId;
+        }
+    }
+
+    public void transferHost(String newHostPlayerId) {
+        if (findPlayer(newHostPlayerId).isPresent()) {
+            this.hostPlayerId = newHostPlayerId;
+        }
     }
 
     private List<String> currentDisplayNames() {
@@ -207,7 +216,11 @@ public class GameRoom {
         RoomPlayer player = findPlayer(playerId).orElseThrow(RoomException::notMember);
         players.remove(player);
         if (hostPlayerId.equals(playerId) && !players.isEmpty()) {
-            hostPlayerId = players.getFirst().getPlayerId();
+            hostPlayerId = players.stream()
+                    .filter(p -> !p.getPlayerId().startsWith("bot-"))
+                    .map(RoomPlayer::getPlayerId)
+                    .findFirst()
+                    .orElse(players.getFirst().getPlayerId());
         }
     }
 
