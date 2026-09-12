@@ -14,9 +14,11 @@ import com.partygameonline.game.bloodbound.domain.BloodBoundActionType;
 import com.partygameonline.game.bloodbound.domain.BloodBoundGameState;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPhase;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPlayerState;
+import com.partygameonline.game.bloodbound.domain.BloodBoundSettings;
 import com.partygameonline.game.bloodbound.domain.BloodClan;
 import com.partygameonline.game.bloodbound.domain.ClueTokenType;
 import com.partygameonline.game.bloodbound.domain.RevealedToken;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +64,45 @@ class BloodBoundGameEngineTests {
 
         assertThat(roseCount).isEqualTo(3);
         assertThat(fanCount).isEqualTo(3);
+    }
+
+    @Test
+    void capturesBloodBoundSettingsAndUsesThemForDeadlines() {
+        GameConfig config = new GameConfig(
+                BloodBoundGameManifest.ID,
+                "ROOM-SETTINGS",
+                List.of("p1", "p2", "p3", "p4"),
+                Map.of("p1", "A", "p2", "B", "p3", "C", "p4", "D"),
+                1L,
+                Map.of("bloodBound", Map.of("turnSeconds", 45, "interventionSeconds", 5))
+        );
+        BloodBoundGameState state = engine.createGame(config, new SeededRandomSource(1L));
+
+        assertThat(state.getSettings()).isEqualTo(new BloodBoundSettings(45, 5));
+        for (String playerId : List.of("p1", "p2", "p3", "p4")) {
+            engine.apply(state, PlayerContext.player(playerId, playerId),
+                    BloodBoundAction.of(BloodBoundActionType.LOOK_LEFT_ACK), new SeededRandomSource(1L));
+        }
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.ATTACK_CHOICE);
+        assertThat(state.getPhaseDeadline()).isAfter(Instant.now().plusSeconds(40));
+
+        engine.apply(state, PlayerContext.player("p1", "A"), BloodBoundAction.attack("p2"), new SeededRandomSource(1L));
+        assertThat(state.getPhaseDeadline()).isAfter(Instant.now().plusSeconds(3));
+        assertThat(state.getPhaseDeadline()).isBefore(Instant.now().plusSeconds(8));
+    }
+
+    @Test
+    void attackTimeoutAutomaticallyStartsInterventionOnValidTarget() {
+        BloodBoundGameState state = createTestGame(6);
+        state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+        state.setPhaseDeadline(Instant.now().minusSeconds(1));
+
+        engine.checkPhaseTimeout(state, Instant.now());
+
+        assertThat(state.getPhase()).isEqualTo(BloodBoundPhase.INTERVENTION_WINDOW);
+        assertThat(state.getTargetPlayerId()).isNotNull().isNotEqualTo(state.getDaggerPlayerId());
+        assertThat(state.getLastAttackerPlayerId()).isEqualTo(state.getDaggerPlayerId());
+        assertThat(state.getPhaseDeadline()).isAfter(Instant.now());
     }
 
     @Test
@@ -384,6 +425,41 @@ class BloodBoundGameEngineTests {
     }
 
     @Test
+    void projectorRevealsAllSecretsOnlyAfterGameOver() {
+        BloodBoundGameState state = createTestGame(6);
+        PlayerContext viewerAlice = PlayerContext.player("p1", "Alice");
+
+        assertThat(projector.project(state, viewerAlice).finalSecretCards()).isEmpty();
+
+        state.setWinnerClan(state.player("p1").getClan());
+        state.setCapturedPlayerId("p2");
+        state.setPhase(BloodBoundPhase.GAME_OVER);
+        BloodBoundView gameOverView = projector.project(state, viewerAlice);
+
+        assertThat(gameOverView.finalSecretCards()).containsKeys("p1", "p2", "p3", "p4", "p5", "p6");
+        assertThat(gameOverView.winnerPlayerIds()).contains("p1");
+    }
+
+    @Test
+    void berserkerMayOnlyReflectTheLastAttacker() {
+        BloodBoundGameState state = createTestGame(6);
+        BloodBoundPlayerState victim = state.player("p2");
+        victim.setRank(7);
+        victim.setHasRevealedRank(true);
+        state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+        state.setDaggerPlayerId("p2");
+        state.setLastAttackerPlayerId("p1");
+
+        BloodBoundAction wrongTarget = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p3");
+        ValidationResult rejected = engine.validate(state, PlayerContext.player("p2", "Bob"), wrongTarget);
+        assertThat(rejected.valid()).isFalse();
+        assertThat(rejected.errorCode()).isEqualTo("INVALID_TARGET");
+
+        BloodBoundAction correctTarget = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p1");
+        assertThat(engine.validate(state, PlayerContext.player("p2", "Bob"), correctTarget).valid()).isTrue();
+    }
+
+    @Test
     void decodeActionAcceptsTargetPlayerIdForUseAbility() {
         Map<String, Object> payload = Map.of(
                 "type", "USE_ABILITY",
@@ -526,7 +602,7 @@ class BloodBoundGameEngineTests {
     }
 
     @Test
-    void useAbilityMentalistForcesCrestToken() {
+    void useAbilityMentalistForcesFirstMissingClueToken() {
         BloodBoundGameState state = createTestGame(6);
         BloodBoundPlayerState p1 = state.player("p1");
         p1.setRank(5); // Mentalist
@@ -539,7 +615,7 @@ class BloodBoundGameEngineTests {
         BloodBoundAction mentalist = new BloodBoundAction(null, BloodBoundActionType.USE_ABILITY, null, null, null, "p2");
         engine.apply(state, actor, mentalist, new SeededRandomSource(1L));
 
-        assertThat(p2.getRevealedTokens()).anyMatch(t -> t.type() == ClueTokenType.CREST);
+        assertThat(p2.getRevealedTokens()).anyMatch(t -> t.type() == ClueTokenType.COLOR);
         assertThat(p1.isHasUsedAbility()).isTrue();
     }
 

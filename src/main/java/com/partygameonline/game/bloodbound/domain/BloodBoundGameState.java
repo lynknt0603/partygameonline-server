@@ -27,6 +27,9 @@ public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink 
     private String targetPlayerId;
     private String intervenerPlayerId;
     private String forcedAttackTargetId;
+    private String lastAttackerPlayerId;
+
+    private BloodBoundSettings settings = BloodBoundSettings.defaults();
 
     private BloodClan winnerClan;
     private String capturedPlayerId;
@@ -83,6 +86,14 @@ public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink 
 
     public void setTargetPlayerId(String targetPlayerId) {
         this.targetPlayerId = targetPlayerId;
+    }
+
+    public String getLastAttackerPlayerId() {
+        return lastAttackerPlayerId;
+    }
+
+    public void setLastAttackerPlayerId(String lastAttackerPlayerId) {
+        this.lastAttackerPlayerId = lastAttackerPlayerId;
     }
 
     public String getIntervenerPlayerId() {
@@ -149,8 +160,16 @@ public class BloodBoundGameState implements GameOutcomeState, GameEloChangeSink 
         this.phaseDeadline = phaseDeadline;
     }
 
+    public BloodBoundSettings getSettings() {
+        return settings;
+    }
+
+    public void configure(BloodBoundSettings settings) {
+        this.settings = settings == null ? BloodBoundSettings.defaults() : settings;
+    }
+
     public boolean timeoutIsDue(Instant now) {
-        return phase == BloodBoundPhase.INTERVENTION_WINDOW
+        return (phase == BloodBoundPhase.ATTACK_CHOICE || phase == BloodBoundPhase.INTERVENTION_WINDOW)
                 && phaseDeadline != null
                 && !now.isBefore(phaseDeadline);
     }

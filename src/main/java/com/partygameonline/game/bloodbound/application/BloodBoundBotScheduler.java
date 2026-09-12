@@ -95,6 +95,16 @@ public class BloodBoundBotScheduler {
                 if (attacker == null || attacker.getWounds() >= 4) {
                     return;
                 }
+                if (attacker.isHasRevealedRank() && !attacker.isHasUsedAbility()) {
+                    String abilityTarget = pickAbilityTarget(state, attacker);
+                    if (abilityTarget != null) {
+                        dispatchAction(session, attacker, Map.of(
+                                "type", BloodBoundActionType.USE_ABILITY.name(),
+                                "abilityTargetPlayerId", abilityTarget
+                        ));
+                        return;
+                    }
+                }
                 String targetId = pickSmartAttackTarget(state, attacker);
                 if (targetId != null) {
                     dispatchAction(session, attacker, Map.of(
@@ -184,8 +194,9 @@ public class BloodBoundBotScheduler {
 
         for (BloodBoundPlayerState c : candidates) {
             int score = 50;
-            boolean isAlly = c.getClan() == attacker.getClan();
-            boolean isEnemy = !isAlly;
+            BloodClan knownClan = deducedClan(c);
+            boolean isAlly = knownClan != null && knownClan == attacker.getClan();
+            boolean isEnemy = knownClan != null && knownClan != attacker.getClan();
             boolean isConfirmedLeader = false;
 
             for (RevealedToken t : c.getRevealedTokens()) {
@@ -251,11 +262,12 @@ public class BloodBoundBotScheduler {
             return false;
         }
         BloodBoundPlayerState target = state.player(targetId);
-        if (target == null || target.getClan() != bot.getClan()) {
+        BloodClan knownClan = target == null ? null : deducedClan(target);
+        if (target == null || knownClan == null || knownClan != bot.getClan()) {
             return false;
         }
 
-        boolean targetIsLeader = target.getRank() == 1;
+        boolean targetIsLeader = hasRevealedRank(target, 1);
         boolean targetCritical = target.getWounds() >= 2;
 
         return (targetIsLeader || targetCritical) && bot.getWounds() <= 2;
@@ -294,6 +306,70 @@ public class BloodBoundBotScheduler {
             return ClueTokenType.CREST;
         }
         return ClueTokenType.RANK;
+    }
+
+    private String pickAbilityTarget(BloodBoundGameState state, BloodBoundPlayerState actor) {
+        int rank = actor.getRank();
+        if (rank == 7) {
+            String lastAttacker = state.getLastAttackerPlayerId();
+            BloodBoundPlayerState target = state.player(lastAttacker);
+            return target != null && target.isConnected() && target.getWounds() < 4
+                    && !target.getPlayerId().equals(actor.getPlayerId()) ? target.getPlayerId() : null;
+        }
+        if (rank == 4) {
+            return state.getPlayers().stream()
+                    .filter(p -> p.isConnected() && p.getWounds() > 0 && p.getWounds() < 4)
+                    .sorted(java.util.Comparator.comparingInt(BloodBoundPlayerState::getWounds).reversed())
+                    .map(BloodBoundPlayerState::getPlayerId)
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (rank == 5) {
+            return state.getPlayers().stream()
+                    .filter(p -> !p.getPlayerId().equals(actor.getPlayerId()) && p.isConnected() && p.getWounds() < 4)
+                    .filter(this::hasMissingCoreClue)
+                    .map(BloodBoundPlayerState::getPlayerId)
+                    .findFirst()
+                    .orElse(null);
+        }
+        return state.getPlayers().stream()
+                .filter(p -> !p.getPlayerId().equals(actor.getPlayerId()) && p.isConnected() && p.getWounds() < 4)
+                .map(BloodBoundPlayerState::getPlayerId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private BloodClan deducedClan(BloodBoundPlayerState player) {
+        for (RevealedToken token : player.getRevealedTokens()) {
+            if (token.type() == ClueTokenType.CREST && token.value() != null) {
+                String value = token.value().toUpperCase();
+                for (BloodClan clan : BloodClan.values()) {
+                    if (value.startsWith(clan.name() + "-")) {
+                        return clan;
+                    }
+                }
+            }
+            if (token.type() == ClueTokenType.COLOR && token.value() != null) {
+                return switch (token.value().toUpperCase()) {
+                    case "RED" -> BloodClan.ROSE;
+                    case "GREEN" -> BloodClan.FAN;
+                    case "YELLOW" -> BloodClan.INQUISITOR;
+                    default -> null;
+                };
+            }
+        }
+        return null;
+    }
+
+    private boolean hasRevealedRank(BloodBoundPlayerState player, int rank) {
+        return player.getRevealedTokens().stream()
+                .anyMatch(token -> token.type() == ClueTokenType.RANK && String.valueOf(rank).equals(token.value()));
+    }
+
+    private boolean hasMissingCoreClue(BloodBoundPlayerState player) {
+        return player.getRevealedTokens().stream().noneMatch(t -> t.type() == ClueTokenType.COLOR)
+                || player.getRevealedTokens().stream().noneMatch(t -> t.type() == ClueTokenType.CREST)
+                || player.getRevealedTokens().stream().noneMatch(t -> t.type() == ClueTokenType.RANK);
     }
 
     private boolean isBot(String playerId) {

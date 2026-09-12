@@ -10,9 +10,13 @@ import com.partygameonline.game.bloodbound.api.dto.BloodBoundSecretCardView;
 import com.partygameonline.game.bloodbound.api.dto.BloodBoundView;
 import com.partygameonline.game.bloodbound.domain.BloodBoundEvent;
 import com.partygameonline.game.bloodbound.domain.BloodBoundGameState;
+import com.partygameonline.game.bloodbound.domain.BloodBoundPhase;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPlayerState;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -70,6 +74,15 @@ public class BloodBoundGameStateProjector implements GameStateProjector<BloodBou
             logsView.add(new BloodBoundLogView(ev.text(), ev.textVi()));
         }
 
+        boolean gameOver = state.getPhase() == BloodBoundPhase.GAME_OVER;
+        Set<String> winnerPlayerIds = gameOver ? state.winnerPlayerIds() : Set.of();
+        Map<String, BloodBoundSecretCardView> finalSecretCards = new LinkedHashMap<>();
+        if (gameOver) {
+            for (BloodBoundPlayerState p : state.getPlayers()) {
+                finalSecretCards.put(p.getPlayerId(), new BloodBoundSecretCardView(p.getClan(), p.getRank()));
+            }
+        }
+
         return new BloodBoundView(
                 BloodBoundGameManifest.ID,
                 state.getRoomId(),
@@ -81,12 +94,18 @@ public class BloodBoundGameStateProjector implements GameStateProjector<BloodBou
                 state.getTargetPlayerId(),
                 state.getIntervenerPlayerId(),
                 state.getForcedAttackTargetId(),
+                state.getLastAttackerPlayerId(),
                 playersView,
                 mySecretCard,
                 leftNeighborClue,
                 state.getWinnerClan(),
                 state.getCapturedPlayerId(),
-                logsView
+                logsView,
+                state.getPhaseDeadline(),
+                state.getSettings().turnSeconds(),
+                state.getSettings().interventionSeconds(),
+                winnerPlayerIds,
+                finalSecretCards
         );
     }
 }

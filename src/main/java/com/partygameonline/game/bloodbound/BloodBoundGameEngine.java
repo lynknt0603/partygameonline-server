@@ -15,6 +15,7 @@ import com.partygameonline.game.bloodbound.domain.BloodBoundEvent;
 import com.partygameonline.game.bloodbound.domain.BloodBoundGameState;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPhase;
 import com.partygameonline.game.bloodbound.domain.BloodBoundPlayerState;
+import com.partygameonline.game.bloodbound.domain.BloodBoundSettings;
 import com.partygameonline.game.bloodbound.domain.BloodClan;
 import com.partygameonline.game.bloodbound.domain.ClueTokenType;
 import java.util.ArrayList;
@@ -47,6 +48,7 @@ public class BloodBoundGameEngine
         }
 
         BloodBoundGameState state = new BloodBoundGameState(config.roomId());
+        state.configure(BloodBoundSettings.fromRoomSettings(config.settings()));
         int half = count / 2;
 
         record Card(BloodClan clan, int rank) {}
@@ -208,6 +210,7 @@ public class BloodBoundGameEngine
                     if (candidate.getSeat() == nextSeat && candidate.isConnected() && candidate.getWounds() < 4) {
                         state.setDaggerPlayerId(candidate.getPlayerId());
                         state.setPhase(BloodBoundPhase.ATTACK_CHOICE);
+                        state.setPhaseDeadline(java.time.Instant.now().plusSeconds(state.getSettings().turnSeconds()));
                         state.setTargetPlayerId(null);
                         state.setIntervenerPlayerId(null);
                         BloodBoundEvent passEvt = BloodBoundEvent.log(
