@@ -3,6 +3,7 @@ package com.partygameonline.game.bloodbound;
 import com.partygameonline.game.core.GameManifest;
 import com.partygameonline.game.bloodbound.domain.BloodBoundGameState;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -10,6 +11,13 @@ public class BloodBoundGameManifest implements GameManifest {
 
     public static final String ID = "blood-bound";
     public static final String GAME_CODE = "BLOOD_BOUND";
+    private final boolean enabled;
+
+    public BloodBoundGameManifest(
+            @Value("${games.blood-bound.enabled:false}") boolean enabled
+    ) {
+        this.enabled = enabled;
+    }
 
     @Override
     public String id() {
@@ -33,7 +41,7 @@ public class BloodBoundGameManifest implements GameManifest {
 
     @Override
     public boolean enabled() {
-        return true;
+        return enabled;
     }
 
     @Override

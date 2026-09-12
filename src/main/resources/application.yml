@@ -42,6 +42,8 @@ server:
   #       same-site: ${COOKIE_SAME_SITE:lax}
 
 games:
+  blood-bound:
+    enabled: ${BLOOD_BOUND_ENABLED:false}
   nob:
     target-score: 10
     timeout-scheduler-enabled: true

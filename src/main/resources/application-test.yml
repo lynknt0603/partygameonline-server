@@ -9,6 +9,8 @@ spring:
     password: ${DB_PASSWORD:partygameonline}
 
 games:
+  blood-bound:
+    enabled: true
   nob:
     timeout-scheduler-enabled: false
   not-in-my-pot:
