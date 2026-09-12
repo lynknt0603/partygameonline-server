@@ -1,5 +1,6 @@
 package com.partygameonline.ranking.application;
 
+import com.partygameonline.game.bloodbound.BloodBoundGameManifest;
 import com.partygameonline.game.nob.NobGameManifest;
 import com.partygameonline.game.liarsnumber.LiarsNumberGameManifest;
 import com.partygameonline.game.nob.infrastructure.NobGameRoundEntity;
@@ -101,11 +102,12 @@ public class RankingService {
         boolean notInMyPotRanking = NotInMyPotGameManifest.ID.equals(normalizedGame);
         boolean wheresTheBoneRanking = WheresTheBoneGameManifest.ID.equals(normalizedGame);
         boolean liarsNumberRanking = LiarsNumberGameManifest.ID.equals(normalizedGame);
+        boolean bloodBoundRanking = BloodBoundGameManifest.ID.equals(normalizedGame);
         String normalizedSort = normalizeSort(sort);
-        if (nobRanking && "roleWins".equals(normalizedSort)) {
+        if ((nobRanking || bloodBoundRanking) && "roleWins".equals(normalizedSort)) {
             normalizedSort = "bloodlineWins";
         }
-        if (!nobRanking && "bloodlineWins".equals(normalizedSort)) {
+        if (!nobRanking && !bloodBoundRanking && "bloodlineWins".equals(normalizedSort)) {
             normalizedSort = DEFAULT_SORT;
         }
         if (!wheresTheBoneRanking && "roleWins".equals(normalizedSort)) {
@@ -114,7 +116,8 @@ public class RankingService {
         if (!notInMyPotRanking && isNotInMyPotFactionSort(normalizedSort)) {
             normalizedSort = DEFAULT_SORT;
         }
-        String normalizedBloodline = nobRanking ? normalizeBloodline(bloodline) : null;
+        String normalizedBloodline = nobRanking ? normalizeBloodline(bloodline)
+                : bloodBoundRanking ? normalizeClan(bloodline) : null;
         String normalizedRole = wheresTheBoneRanking ? normalizeRole(role) : null;
         boolean vegetarianRanking = "vegetarianWins".equals(normalizedSort);
         boolean meatEaterRanking = "meatEaterWins".equals(normalizedSort);
@@ -124,8 +127,8 @@ public class RankingService {
         List<UserGameStatisticEntity> statistics = statisticRepository.findByGameCode(normalizedGame).stream()
                 // A standalone forfeit can change rating as an anti-abuse
                 // penalty, but it is not a completed game and must not create
-                // a misleading NOB leaderboard entry.
-                .filter(statistic -> !nobRanking || statistic.getTotalMatch() > 0)
+                // a misleading NOB/BloodBound leaderboard entry.
+                .filter(statistic -> (!nobRanking && !bloodBoundRanking) || statistic.getTotalMatch() > 0)
                 .toList();
         if (statistics.isEmpty()) {
             return new RankingResponse(
@@ -150,6 +153,8 @@ public class RankingService {
         Map<String, String> avatarUrls = avatarUrls(playerIds, users);
         Map<String, BloodlineSummary> bloodlineSummaries = nobRanking
                 ? bloodlineSummaries(playerIds)
+                : bloodBoundRanking
+                ? bloodBoundClanSummaries(normalizedGame, playerIds)
                 : Map.of();
         Map<String, RoleSummary> roleSummaries = wheresTheBoneRanking
                 ? roleSummaries(normalizedGame, playerIds)
@@ -173,7 +178,7 @@ public class RankingService {
                         || player.notInMyPotFactionSummary().played(NotInMyPotRole.VEGETARIAN) > 0)
                 .filter(player -> !meatEaterRanking
                         || player.notInMyPotFactionSummary().played(NotInMyPotRole.MEAT_EATER) > 0)
-                .sorted(comparator(normalizedSort, normalizedBloodline, normalizedRole, liarsNumberRanking))
+                .sorted(comparator(normalizedSort, normalizedBloodline, normalizedRole, liarsNumberRanking || bloodBoundRanking))
                 .toList();
 
         List<RankingResponse.RankingEntry> allEntries = new ArrayList<>(ranked.size());
@@ -277,6 +282,22 @@ public class RankingService {
         roundRepository.findByPlayerIdInOrderByCreatedAtDescIdAsc(playerIds)
                 .forEach(round -> result.computeIfAbsent(round.getPlayerId(), ignored -> new BloodlineSummary())
                         .record(round));
+        return result;
+    }
+
+    private Map<String, BloodlineSummary> bloodBoundClanSummaries(String gameId, List<String> playerIds) {
+        Map<String, BloodlineSummary> result = new HashMap<>();
+        for (String playerId : playerIds) {
+            result.put(playerId, new BloodlineSummary());
+        }
+        matchPlayerRepository.findByGameIdAndPlayerIdInOrderByCreatedAtDescIdAsc(gameId, playerIds)
+                .forEach(player -> {
+                    String clan = normalizeClan(player.getBloodline());
+                    if (clan != null) {
+                        BloodlineSummary summary = result.computeIfAbsent(player.getPlayerId(), ignored -> new BloodlineSummary());
+                        summary.recordClan(clan, player.getResult());
+                    }
+                });
         return result;
     }
 
@@ -400,6 +421,18 @@ public class RankingService {
         };
     }
 
+    private static String normalizeClan(String clan) {
+        if (clan == null || clan.isBlank() || "all".equalsIgnoreCase(clan)) {
+            return null;
+        }
+        return switch (clan.trim().toUpperCase(Locale.ROOT)) {
+            case "ROSE" -> "ROSE";
+            case "FAN" -> "FAN";
+            case "INQUISITOR" -> "INQUISITOR";
+            default -> null;
+        };
+    }
+
     private static String normalizeRole(String role) {
         if (role == null || role.isBlank() || "all".equalsIgnoreCase(role)) {
             return null;
@@ -465,6 +498,13 @@ public class RankingService {
             played.merge(bloodline, 1, Integer::sum);
             if ("WIN".equalsIgnoreCase(round.getResult())) {
                 wins.merge(bloodline, 1, Integer::sum);
+            }
+        }
+
+        private void recordClan(String clan, String result) {
+            played.merge(clan, 1, Integer::sum);
+            if ("WIN".equalsIgnoreCase(result)) {
+                wins.merge(clan, 1, Integer::sum);
             }
         }
 
