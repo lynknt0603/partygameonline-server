@@ -1,5 +1,6 @@
 package com.partygameonline.room.api;
 
+import com.partygameonline.room.api.dto.AddBotRequest;
 import com.partygameonline.room.api.dto.CreateRoomRequest;
 import com.partygameonline.room.api.dto.ReadyRequest;
 import com.partygameonline.room.api.dto.RoomResponse;
@@ -103,6 +104,7 @@ public class RoomController {
                 request == null ? java.util.Map.of() : request.notInMyPot(),
                 request == null ? java.util.Map.of() : request.wheresTheBone(),
                 request == null ? java.util.Map.of() : request.liarsNumber(),
+                request == null ? java.util.Map.of() : request.bloodBound(),
                 request == null ? null : request.locked(),
                 request == null ? null : request.maxPlayers()
         ));
@@ -116,6 +118,17 @@ public class RoomController {
     ) {
         requireMember(principal);
         return RoomResponse.from(roomService.kick(principal, roomId, playerId));
+    }
+
+    @PostMapping("/{roomId}/bot")
+    public RoomResponse addBot(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @PathVariable String roomId,
+            @RequestBody(required = false) AddBotRequest request
+    ) {
+        requireMember(principal);
+        String botType = request != null && request.botType() != null ? request.botType() : "NORMAL";
+        return RoomResponse.from(roomService.addBot(principal, roomId, botType));
     }
 
     @PostMapping("/{roomId}/close")

@@ -7,7 +7,7 @@ public record LiarsNumberSettings(int turnSeconds) {
 
     public static final int DEFAULT_TURN_SECONDS = 0;
     public static final int MIN_TIMED_TURN_SECONDS = 5;
-    public static final int MAX_TURN_SECONDS = 30;
+    public static final int MAX_TURN_SECONDS = 60;
 
     public LiarsNumberSettings {
         turnSeconds = validTurnSeconds(turnSeconds) ? turnSeconds : DEFAULT_TURN_SECONDS;
