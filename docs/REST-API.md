@@ -27,6 +27,7 @@ Authentication: `contracts/rest/SECURITY.md`.
 | GET | `/api/v1/matches/{matchId}` | bearer | 200 `MatchResponse` |
 | GET | `/api/v1/profile/me/stats` | bearer | 200 `ProfileStatsResponse` |
 | PATCH | `/api/v1/profile/me` | bearer | 200 `SessionResponse` + refreshed `accessToken` |
+| PATCH | `/api/v1/auth/password` | bearer member | 204 No Content |
 | GET | `/api/v1/profile/{usernameOrPlayerId}` | bearer | 200 public `ProfileStatsResponse` |
 | GET | `/api/v1/players/search?query=...&limit=20` | bearer | 200 `PlayerSearchResponse[]` |
 | GET | `/api/v1/rankings?gameId=night-of-bloodlines&sort=highestElo&bloodline=...` | bearer | 200 `RankingResponse` |
