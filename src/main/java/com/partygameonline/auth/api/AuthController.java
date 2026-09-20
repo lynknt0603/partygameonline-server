@@ -2,6 +2,7 @@ package com.partygameonline.auth.api;
 
 import com.partygameonline.auth.api.dto.AuthRequest;
 import com.partygameonline.auth.api.dto.AuthResponse;
+import com.partygameonline.auth.api.dto.ChangePasswordRequest;
 import com.partygameonline.auth.api.dto.RegisterRequest;
 import com.partygameonline.auth.application.AuthService;
 import com.partygameonline.security.AuthTokenService;
@@ -10,6 +11,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,5 +44,14 @@ public class AuthController {
     public AuthResponse login(@Valid @RequestBody AuthRequest body, HttpServletRequest request) {
         PlayerPrincipal principal = authService.login(body.username(), body.password(), request);
         return AuthResponse.from(principal, tokens.issue(principal));
+    }
+
+    @PatchMapping("/password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal PlayerPrincipal principal,
+            @Valid @RequestBody ChangePasswordRequest body
+    ) {
+        authService.changePassword(principal, body.currentPassword(), body.newPassword());
+        return ResponseEntity.noContent().build();
     }
 }

@@ -4,6 +4,7 @@ import com.partygameonline.common.error.ApiException;
 import com.partygameonline.common.avatar.AvatarCatalog;
 import com.partygameonline.session.application.SessionService;
 import com.partygameonline.session.domain.PlayerPrincipal;
+import com.partygameonline.session.domain.SessionKind;
 import com.partygameonline.user.infrastructure.UserEntity;
 import com.partygameonline.user.infrastructure.UserJpaRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -89,6 +90,31 @@ public class AuthService {
                 user.getCreatedAt(),
                 AvatarCatalog.urlForKey(user.getAvatarKey())
         );
+    }
+
+    @Transactional
+    public void changePassword(PlayerPrincipal principal, String currentPassword, String newPassword) {
+        if (principal == null || principal.kind() != SessionKind.MEMBER) {
+            throw new ApiException(
+                    "MEMBER_ACCOUNT_REQUIRED", HttpStatus.FORBIDDEN, "A member account is required"
+            );
+        }
+        UserEntity user = users.findByUserKey(principal.playerId())
+                .orElseThrow(() -> new ApiException(
+                        "USER_NOT_FOUND", HttpStatus.NOT_FOUND, "User account was not found"
+                ));
+        if (!passwordCipher.matches(currentPassword, user.getPasswordAes())) {
+            throw new ApiException(
+                    "INVALID_CURRENT_PASSWORD", HttpStatus.BAD_REQUEST, "Current password is incorrect"
+            );
+        }
+        if (passwordCipher.matches(newPassword, user.getPasswordAes())) {
+            throw new ApiException(
+                    "PASSWORD_UNCHANGED", HttpStatus.BAD_REQUEST, "New password must be different"
+            );
+        }
+        user.upgradePassword(passwordCipher.encrypt(newPassword));
+        users.save(user);
     }
 
     private String normalize(String username) {

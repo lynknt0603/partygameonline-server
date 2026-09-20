@@ -3,6 +3,7 @@ package com.partygameonline.session.api;
 import static com.partygameonline.testing.BearerTestSupport.bearer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -23,6 +24,73 @@ class SessionControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    void memberCanChangePasswordAndUseOnlyTheNewPassword() throws Exception {
+        String username = "password" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        MvcResult registered = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username
+                                + "\",\"password\":\"Secret123!\",\"displayName\":\"Member\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(
+                registered.getResponse().getContentAsString(), "$.accessToken"
+        );
+
+        mockMvc.perform(patch("/api/v1/auth/password")
+                        .with(bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"Secret123!\",\"newPassword\":\"NewSecret456!\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"Secret123!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_CREDENTIALS"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"NewSecret456!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kind").value("MEMBER"));
+    }
+
+    @Test
+    void changingPasswordRejectsWrongCurrentPasswordAndInvalidRequests() throws Exception {
+        String username = "passworderr" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        MvcResult registered = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username
+                                + "\",\"password\":\"Secret123!\",\"displayName\":\"Member\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(
+                registered.getResponse().getContentAsString(), "$.accessToken"
+        );
+
+        mockMvc.perform(patch("/api/v1/auth/password")
+                        .with(bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"Wrong123!\",\"newPassword\":\"NewSecret456!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_CURRENT_PASSWORD"));
+
+        mockMvc.perform(patch("/api/v1/auth/password")
+                        .with(bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"Secret123!\",\"newPassword\":\"x\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"));
+
+        mockMvc.perform(patch("/api/v1/auth/password")
+                        .with(bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"Secret123!\",\"newPassword\":\"Secret123!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("PASSWORD_UNCHANGED"));
+    }
 
     @Test
     void registrationUsesDisplayNameAndLoginKeepsIt() throws Exception {
