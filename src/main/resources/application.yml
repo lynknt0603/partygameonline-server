@@ -11,6 +11,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Render can briefly reset outbound connections during route changes.
+    # Retry startup migrations instead of terminating the whole service after
+    # the first transient TLS/database connection failure.
+    connect-retries: ${DB_CONNECT_RETRIES:10}
+    connect-retries-interval: ${DB_CONNECT_RETRIES_INTERVAL:30s}
   jpa:
     open-in-view: false
     hibernate:
